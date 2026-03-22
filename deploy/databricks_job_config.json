@@ -1,6 +1,6 @@
 {
   "name": "Zomato Analytics — Full Medallion Pipeline",
-  "description": "End-to-end pipeline: Table Setup → Bronze → Silver → Gold → Dashboard → Alerts",
+  "description": "End-to-end pipeline: DDL → Data Gen → Bronze → Silver → Gold → Dashboard",
   "tags": {
     "project": "zomato-analytics",
     "team": "data-engineering",
@@ -9,22 +9,36 @@
   "tasks": [
     {
       "task_key": "create_tables",
-      "description": "Create Unity Catalog, schemas, and all Delta tables (idempotent DDL)",
+      "description": "Create Unity Catalog, schemas, volumes, and all Delta tables (idempotent DDL)",
       "notebook_task": {
         "notebook_path": "/Workspace/Zomato-Analytics/setup/00_create_tables",
         "base_parameters": {
           "catalog_name": "zomato_analytics"
         }
       },
-      "existing_cluster_id": "${CLUSTER_ID}",
       "timeout_seconds": 300,
+      "max_retries": 1
+    },
+    {
+      "task_key": "generate_data",
+      "description": "Generate synthetic data using Faker and write Parquet to landing volume",
+      "depends_on": [
+        { "task_key": "create_tables" }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Zomato-Analytics/setup/01_generate_data",
+        "base_parameters": {
+          "catalog_name": "zomato_analytics"
+        }
+      },
+      "timeout_seconds": 1800,
       "max_retries": 1
     },
     {
       "task_key": "bronze_ingestion",
       "description": "Ingest raw data into Bronze layer with schema enforcement and audit columns",
       "depends_on": [
-        { "task_key": "create_tables" }
+        { "task_key": "generate_data" }
       ],
       "notebook_task": {
         "notebook_path": "/Workspace/Zomato-Analytics/bronze/01_bronze_ingestion",
@@ -35,7 +49,6 @@
           "load_type": "full"
         }
       },
-      "existing_cluster_id": "${CLUSTER_ID}",
       "timeout_seconds": 1800,
       "max_retries": 2,
       "min_retry_interval_millis": 60000
@@ -53,7 +66,6 @@
           "env": "dev"
         }
       },
-      "existing_cluster_id": "${CLUSTER_ID}",
       "timeout_seconds": 3600,
       "max_retries": 1
     },
@@ -70,7 +82,6 @@
           "env": "dev"
         }
       },
-      "existing_cluster_id": "${CLUSTER_ID}",
       "timeout_seconds": 3600,
       "max_retries": 1
     },
@@ -86,14 +97,10 @@
           "catalog_name": "zomato_analytics"
         }
       },
-      "existing_cluster_id": "${CLUSTER_ID}",
       "timeout_seconds": 1800,
       "max_retries": 1
     }
   ],
-  "run_as": {
-    "user_name": "${WORKSPACE_USER}"
-  },
   "schedule": {
     "quartz_cron_expression": "0 0 2 * * ?",
     "timezone_id": "Asia/Kolkata",
@@ -101,14 +108,9 @@
   },
   "email_notifications": {
     "on_start": [],
-    "on_success": ["${ALERT_EMAIL}"],
-    "on_failure": ["${ALERT_EMAIL}"],
+    "on_success": ["dataarchitectstudio@gmail.com"],
+    "on_failure": ["dataarchitectstudio@gmail.com"],
     "no_alert_for_skipped_runs": true
-  },
-  "webhook_notifications": {
-    "on_start": [],
-    "on_success": [{ "id": "${WEBHOOK_ID}" }],
-    "on_failure": [{ "id": "${WEBHOOK_ID}" }]
   },
   "max_concurrent_runs": 1,
   "format": "MULTI_TASK"

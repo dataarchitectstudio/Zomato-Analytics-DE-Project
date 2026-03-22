@@ -79,6 +79,19 @@ jobs:
             --token "$DATABRICKS_TOKEN" \
             --workspace-path "${{ env.WORKSPACE_PATH }}"
 
+      - name: Create/update Databricks Job
+        id: create_job
+        if: steps.smoke_test.outcome == 'success'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          python3 scripts/create_databricks_job.py \
+            --host "$DATABRICKS_HOST" \
+            --token "$DATABRICKS_TOKEN" \
+            --workspace-path "${{ env.WORKSPACE_PATH }}" \
+            --alert-email "dataarchitectstudio@gmail.com"
+
       - name: Deployment summary
         if: steps.smoke_test.outcome == 'success'
         run: |
@@ -93,11 +106,14 @@ jobs:
           echo ""
           echo "  Notebooks deployed to:"
           echo "    ${{ env.WORKSPACE_PATH }}/setup/00_create_tables"
+          echo "    ${{ env.WORKSPACE_PATH }}/setup/01_generate_data"
           echo "    ${{ env.WORKSPACE_PATH }}/bronze/01_bronze_ingestion"
           echo "    ${{ env.WORKSPACE_PATH }}/silver/02_silver_transformation"
           echo "    ${{ env.WORKSPACE_PATH }}/gold/03_gold_aggregation"
           echo "    ${{ env.WORKSPACE_PATH }}/dashboard/04_analytics_dashboard"
           echo "    ${{ env.WORKSPACE_PATH }}/orchestration/05_run_pipeline"
+          echo ""
+          echo "  Databricks Job: Created/Updated"
           echo "=============================================="
 
   # -------------------------------------------------------------------

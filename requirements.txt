@@ -1,0 +1,26 @@
+# =============================================================================
+# Zomato Analytics — Python Dependencies
+# =============================================================================
+
+# --- Data Generation ---
+faker>=22.0.0
+pandas>=2.1.0
+pyarrow>=14.0.0
+
+# --- Databricks SDK (for CI/CD & local development) ---
+databricks-sdk>=0.20.0
+databricks-cli>=0.18.0
+
+# --- Testing ---
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# --- Code Quality ---
+black>=24.0.0
+isort>=5.13.0
+flake8>=7.0.0
+mypy>=1.8.0
+
+# --- Utilities ---
+requests>=2.31.0
+python-dotenv>=1.0.0

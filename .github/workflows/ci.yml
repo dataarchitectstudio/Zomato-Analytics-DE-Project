@@ -1,0 +1,235 @@
+###############################################################################
+# Zomato Analytics — CI Pipeline
+# Triggers on: push to feature branches + PRs targeting main
+# All CI checks must pass before PR can be merged.
+###############################################################################
+
+name: CI — Lint, Test & Validate Notebooks
+
+on:
+  # Trigger CI when code is pushed to any feature branch
+  push:
+    branches:
+      - "feature/**"
+      - "bugfix/**"
+      - "hotfix/**"
+      - develop
+
+  # Trigger CI when a PR is opened/updated targeting main
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: Code Quality & Linting
+  # -----------------------------------------------------------------------
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 black isort mypy
+
+      - name: Run Black (formatter check)
+        run: black --check --diff data_generator/ config/ tests/
+
+      - name: Run isort (import order check)
+        run: isort --check-only --diff data_generator/ config/ tests/
+
+      - name: Run Flake8 (linter)
+        run: flake8 data_generator/ config/ tests/ --max-line-length 120 --statistics
+
+      - name: Run MyPy (type checking)
+        run: mypy data_generator/ --ignore-missing-imports
+
+  # -----------------------------------------------------------------------
+  # Job 2: Unit Tests
+  # -----------------------------------------------------------------------
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-html
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=data_generator \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            --cov-report=term-missing \
+            --junitxml=test-results.xml \
+            -v
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results.xml
+            coverage.xml
+            htmlcov/
+
+  # -----------------------------------------------------------------------
+  # Job 3: Validate Databricks Notebooks
+  # -----------------------------------------------------------------------
+  validate-notebooks:
+    name: Validate Databricks Notebooks
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Validate notebook syntax
+        run: |
+          echo "=== Validating notebook files ==="
+          FAILED=0
+          for notebook in notebooks/**/*.py; do
+            echo "Checking: $notebook"
+            python -c "
+          import ast, sys
+          try:
+              with open('$notebook', 'r') as f:
+                  lines = f.readlines()
+              clean_lines = [l for l in lines if not l.strip().startswith('# MAGIC') and not l.strip().startswith('# COMMAND')]
+              code = ''.join(clean_lines)
+              ast.parse(code)
+              print('  ✓ Syntax OK')
+          except SyntaxError as e:
+              print(f'  ✗ Syntax error: {e}')
+              sys.exit(1)
+          " || FAILED=1
+          done
+          if [ $FAILED -eq 1 ]; then
+            echo "✗ Notebook validation failed!"
+            exit 1
+          fi
+          echo "=== All notebooks validated ==="
+
+      - name: Scan for hardcoded secrets
+        run: |
+          echo "=== Scanning for hardcoded secrets ==="
+          if grep -rn --include="*.py" -E "(password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]" notebooks/ data_generator/ config/; then
+            echo "✗ Potential hardcoded secrets found!"
+            exit 1
+          fi
+          echo "✓ No hardcoded secrets detected"
+
+  # -----------------------------------------------------------------------
+  # Job 4: Package Notebooks (only on PR to main)
+  # -----------------------------------------------------------------------
+  package:
+    name: Package Notebooks
+    runs-on: ubuntu-latest
+    needs: [test, validate-notebooks]
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Package notebooks for deployment
+        run: |
+          mkdir -p dist/notebooks
+          cp -r notebooks/bronze/ dist/notebooks/bronze/
+          cp -r notebooks/silver/ dist/notebooks/silver/
+          cp -r notebooks/gold/ dist/notebooks/gold/
+          cp -r notebooks/dashboard/ dist/notebooks/dashboard/
+
+          cat > dist/manifest.json << EOF
+          {
+            "project": "zomato-analytics",
+            "version": "$(git describe --tags --always 2>/dev/null || echo 'dev')",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.head_ref }}",
+            "target_branch": "${{ github.base_ref }}",
+            "pr_number": "${{ github.event.pull_request.number }}",
+            "build_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notebooks": $(find dist/notebooks -name "*.py" | jq -R . | jq -s .)
+          }
+          EOF
+
+          echo "=== Build Manifest ==="
+          cat dist/manifest.json
+
+      - name: Upload notebook artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: databricks-notebooks-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+
+  # -----------------------------------------------------------------------
+  # Job 5: CI Summary (status gate for branch protection)
+  # -----------------------------------------------------------------------
+  ci-status:
+    name: CI Status Gate
+    runs-on: ubuntu-latest
+    needs: [lint, test, validate-notebooks]
+    if: always()
+    steps:
+      - name: Check CI results
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" || \
+                "${{ needs.test.result }}" != "success" || \
+                "${{ needs.validate-notebooks.result }}" != "success" ]]; then
+            echo "✗ CI checks failed!"
+            echo "  Lint:      ${{ needs.lint.result }}"
+            echo "  Test:      ${{ needs.test.result }}"
+            echo "  Notebooks: ${{ needs.validate-notebooks.result }}"
+            exit 1
+          fi
+          echo "✓ All CI checks passed — PR is ready for review"

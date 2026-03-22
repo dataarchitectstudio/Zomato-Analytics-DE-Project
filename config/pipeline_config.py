@@ -16,7 +16,6 @@ import os
 from dataclasses import dataclass
 from typing import Dict
 
-
 # ---------------------------------------------------------------------------
 # Unity Catalog — Dedicated catalog name (change ONLY this to rename)
 # ---------------------------------------------------------------------------
@@ -26,6 +25,7 @@ UNITY_CATALOG_NAME = "zomato_analytics"
 @dataclass
 class EnvironmentConfig:
     """Environment-specific pipeline settings."""
+
     env_name: str
     catalog: str
     bronze_schema: str

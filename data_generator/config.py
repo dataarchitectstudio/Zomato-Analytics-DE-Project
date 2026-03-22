@@ -11,6 +11,7 @@ from typing import List
 @dataclass
 class DataVolumeConfig:
     """Controls the volume of generated data for each entity."""
+
     num_customers: int = 10_000
     num_restaurants: int = 2_500
     num_orders: int = 150_000
@@ -24,55 +25,124 @@ class ZomatoDataConfig:
     """Domain-specific configuration for Zomato data generation."""
 
     # --- Geography ---
-    cities: List[str] = field(default_factory=lambda: [
-        "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai",
-        "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Lucknow",
-        "Chandigarh", "Goa", "Kochi", "Indore", "Nagpur",
-    ])
+    cities: List[str] = field(
+        default_factory=lambda: [
+            "Mumbai",
+            "Delhi",
+            "Bangalore",
+            "Hyderabad",
+            "Chennai",
+            "Kolkata",
+            "Pune",
+            "Ahmedabad",
+            "Jaipur",
+            "Lucknow",
+            "Chandigarh",
+            "Goa",
+            "Kochi",
+            "Indore",
+            "Nagpur",
+        ]
+    )
 
     # --- Cuisine Types ---
-    cuisines: List[str] = field(default_factory=lambda: [
-        "North Indian", "South Indian", "Chinese", "Italian",
-        "Continental", "Mughlai", "Street Food", "Biryani",
-        "Desserts", "Beverages", "Fast Food", "Thai",
-        "Japanese", "Mexican", "Mediterranean", "Korean",
-        "Bengali", "Rajasthani", "Gujarati", "Kerala",
-    ])
+    cuisines: List[str] = field(
+        default_factory=lambda: [
+            "North Indian",
+            "South Indian",
+            "Chinese",
+            "Italian",
+            "Continental",
+            "Mughlai",
+            "Street Food",
+            "Biryani",
+            "Desserts",
+            "Beverages",
+            "Fast Food",
+            "Thai",
+            "Japanese",
+            "Mexican",
+            "Mediterranean",
+            "Korean",
+            "Bengali",
+            "Rajasthani",
+            "Gujarati",
+            "Kerala",
+        ]
+    )
 
     # --- Restaurant Types ---
-    restaurant_types: List[str] = field(default_factory=lambda: [
-        "Quick Bites", "Casual Dining", "Fine Dining",
-        "Cafe", "Bakery", "Cloud Kitchen", "Food Court",
-        "Dhaba", "Lounge", "Microbrewery",
-    ])
+    restaurant_types: List[str] = field(
+        default_factory=lambda: [
+            "Quick Bites",
+            "Casual Dining",
+            "Fine Dining",
+            "Cafe",
+            "Bakery",
+            "Cloud Kitchen",
+            "Food Court",
+            "Dhaba",
+            "Lounge",
+            "Microbrewery",
+        ]
+    )
 
     # --- Payment Methods ---
-    payment_methods: List[str] = field(default_factory=lambda: [
-        "UPI", "Credit Card", "Debit Card", "Cash on Delivery",
-        "Wallet", "Net Banking",
-    ])
+    payment_methods: List[str] = field(
+        default_factory=lambda: [
+            "UPI",
+            "Credit Card",
+            "Debit Card",
+            "Cash on Delivery",
+            "Wallet",
+            "Net Banking",
+        ]
+    )
 
     # --- Order Statuses ---
-    order_statuses: List[str] = field(default_factory=lambda: [
-        "Placed", "Confirmed", "Preparing", "Out for Delivery",
-        "Delivered", "Cancelled", "Refunded",
-    ])
+    order_statuses: List[str] = field(
+        default_factory=lambda: [
+            "Placed",
+            "Confirmed",
+            "Preparing",
+            "Out for Delivery",
+            "Delivered",
+            "Cancelled",
+            "Refunded",
+        ]
+    )
 
     # --- Delivery Statuses ---
-    delivery_statuses: List[str] = field(default_factory=lambda: [
-        "Assigned", "Picked Up", "In Transit", "Delivered",
-        "Failed", "Returned",
-    ])
+    delivery_statuses: List[str] = field(
+        default_factory=lambda: [
+            "Assigned",
+            "Picked Up",
+            "In Transit",
+            "Delivered",
+            "Failed",
+            "Returned",
+        ]
+    )
 
     # --- Platform Channels ---
-    order_platforms: List[str] = field(default_factory=lambda: [
-        "Android App", "iOS App", "Web", "Partner API",
-    ])
+    order_platforms: List[str] = field(
+        default_factory=lambda: [
+            "Android App",
+            "iOS App",
+            "Web",
+            "Partner API",
+        ]
+    )
 
     # --- Subscription Tiers ---
-    subscription_tiers: List[str] = field(default_factory=lambda: [
-        "Free", "Zomato Pro", "Zomato Pro Plus", "Zomato Gold",
-    ])
+    subscription_tiers: List[str] = field(
+        default_factory=lambda: [
+            "Free",
+            "Zomato Pro",
+            "Zomato Pro Plus",
+            "Zomato Gold",
+        ]
+    )
 
     # --- Rating Range ---
     min_rating: float = 1.0

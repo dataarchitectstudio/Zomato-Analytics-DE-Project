@@ -1,18 +1,16 @@
 ###############################################################################
 # Zomato Analytics — CD Pipeline
-# Triggers ONLY when a PR is merged into main (not on direct push).
-# Deploys notebooks to Databricks Community Edition (Free Tier).
+# Triggers ONLY when a PR is merged into main.
+# Deploys notebooks to Databricks workspace using REST API.
 ###############################################################################
 
 name: CD — Deploy to Databricks
 
 on:
-  # Trigger on PR merge to main
   pull_request:
     branches: [main]
     types: [closed]
 
-  # Manual trigger for emergency deploys
   workflow_dispatch:
     inputs:
       environment:
@@ -27,26 +25,19 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
-  DATABRICKS_WORKSPACE_PATH: "/Workspace/Zomato-Analytics"
+  WORKSPACE_PATH: "/Workspace/Zomato-Analytics"
 
 permissions:
   contents: read
   deployments: write
 
 jobs:
-  # -----------------------------------------------------------------------
-  # Job 1: Deploy Notebooks to Databricks
-  # -----------------------------------------------------------------------
   deploy:
     name: Deploy to Databricks
     runs-on: ubuntu-latest
-    # Only run if the PR was actually merged (not just closed)
     if: >
       (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
       github.event_name == 'workflow_dispatch'
-    environment:
-      name: ${{ github.event.inputs.environment || 'dev' }}
-      url: ${{ secrets.DATABRICKS_HOST }}
 
     steps:
       - name: Checkout repository
@@ -59,139 +50,33 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Databricks CLI
-        run: pip install databricks-cli databricks-sdk
-
-      - name: Configure Databricks CLI
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: |
-          cat > ~/.databrickscfg << EOF
-          [DEFAULT]
-          host = ${DATABRICKS_HOST}
-          token = ${DATABRICKS_TOKEN}
-          EOF
-
-          echo "✓ Databricks CLI configured for: ${DATABRICKS_HOST}"
-
-      - name: Create workspace directories
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: |
-          WORKSPACE_ROOT="${{ env.DATABRICKS_WORKSPACE_PATH }}"
-          for dir in bronze silver gold dashboard; do
-            echo "Creating: ${WORKSPACE_ROOT}/${dir}"
-            databricks workspace mkdirs "${WORKSPACE_ROOT}/${dir}" 2>/dev/null || true
-          done
-          echo "✓ Workspace directories ready"
+      - name: Install dependencies
+        run: pip install requests
 
       - name: Deploy notebooks to Databricks
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          WORKSPACE_ROOT="${{ env.DATABRICKS_WORKSPACE_PATH }}"
-
-          echo "=============================================="
-          echo "  Deploying notebooks to Databricks"
-          echo "  Workspace: ${WORKSPACE_ROOT}"
-          echo "  Trigger  : ${{ github.event_name }}"
-          echo "  PR       : #${{ github.event.pull_request.number || 'N/A' }}"
-          echo "=============================================="
-
-          deploy_notebook() {
-            local src=$1
-            local dest=$2
-            echo "  Deploying: ${src} → ${dest}"
-            databricks workspace import \
-              --language PYTHON \
-              --format SOURCE \
-              --overwrite \
-              "${src}" "${dest}"
-          }
-
-          deploy_notebook \
-            "notebooks/bronze/01_bronze_ingestion.py" \
-            "${WORKSPACE_ROOT}/bronze/01_bronze_ingestion"
-
-          deploy_notebook \
-            "notebooks/silver/02_silver_transformation.py" \
-            "${WORKSPACE_ROOT}/silver/02_silver_transformation"
-
-          deploy_notebook \
-            "notebooks/gold/03_gold_aggregation.py" \
-            "${WORKSPACE_ROOT}/gold/03_gold_aggregation"
-
-          deploy_notebook \
-            "notebooks/dashboard/04_analytics_dashboard.py" \
-            "${WORKSPACE_ROOT}/dashboard/04_analytics_dashboard"
-
-          echo ""
-          echo "✓ All notebooks deployed successfully"
-
-      - name: Verify deployment
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: |
-          WORKSPACE_ROOT="${{ env.DATABRICKS_WORKSPACE_PATH }}"
-
-          echo "=== Verifying deployed notebooks ==="
-          databricks workspace ls -l "${WORKSPACE_ROOT}/bronze/"
-          databricks workspace ls -l "${WORKSPACE_ROOT}/silver/"
-          databricks workspace ls -l "${WORKSPACE_ROOT}/gold/"
-          databricks workspace ls -l "${WORKSPACE_ROOT}/dashboard/"
-          echo "✓ Verification complete"
-
-      - name: Generate deployment summary
-        run: |
-          cat << EOF
-          =============================================
-            DEPLOYMENT SUMMARY
-          =============================================
-            Trigger     : ${{ github.event_name }}
-            PR          : #${{ github.event.pull_request.number || 'N/A' }}
-            PR Title    : ${{ github.event.pull_request.title || 'Manual Deploy' }}
-            Merged by   : ${{ github.event.pull_request.merged_by.login || github.actor }}
-            Commit      : ${{ github.sha }}
-            Timestamp   : $(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-            Notebooks deployed:
-              ✓ bronze/01_bronze_ingestion
-              ✓ silver/02_silver_transformation
-              ✓ gold/03_gold_aggregation
-              ✓ dashboard/04_analytics_dashboard
-          =============================================
-          EOF
-
-  # -----------------------------------------------------------------------
-  # Job 2: Post-Deployment Smoke Test
-  # -----------------------------------------------------------------------
-  smoke-test:
-    name: Post-Deployment Smoke Test
-    runs-on: ubuntu-latest
-    needs: deploy
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: pip install databricks-sdk requests
-
-      - name: Run smoke test
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-        run: |
-          python scripts/smoke_test.py \
+          python3 scripts/deploy_notebooks.py \
             --host "$DATABRICKS_HOST" \
             --token "$DATABRICKS_TOKEN" \
-            --workspace-path "${{ env.DATABRICKS_WORKSPACE_PATH }}"
+            --workspace-path "${{ env.WORKSPACE_PATH }}"
+
+      - name: Deployment summary
+        run: |
+          echo "=============================================="
+          echo "  DEPLOYMENT SUMMARY"
+          echo "=============================================="
+          echo "  Trigger     : ${{ github.event_name }}"
+          echo "  PR          : #${{ github.event.pull_request.number || 'N/A' }}"
+          echo "  Merged by   : ${{ github.actor }}"
+          echo "  Commit      : ${{ github.sha }}"
+          echo "  Timestamp   : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          echo "  Notebooks deployed to:"
+          echo "    ${{ env.WORKSPACE_PATH }}/bronze/01_bronze_ingestion"
+          echo "    ${{ env.WORKSPACE_PATH }}/silver/02_silver_transformation"
+          echo "    ${{ env.WORKSPACE_PATH }}/gold/03_gold_aggregation"
+          echo "    ${{ env.WORKSPACE_PATH }}/dashboard/04_analytics_dashboard"
+          echo "=============================================="

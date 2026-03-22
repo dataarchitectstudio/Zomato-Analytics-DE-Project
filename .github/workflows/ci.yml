@@ -120,12 +120,45 @@ jobs:
           echo "✓ No hardcoded secrets detected"
 
   # -----------------------------------------------------------------------
-  # Job 3: CI Status Gate (for branch protection rules)
+  # Job 3: Pre-Merge Deployment Check (PRs to main only)
+  # Deploys to a staging path, verifies all notebooks, then cleans up.
+  # This catches deployment issues BEFORE code is merged to main.
+  # -----------------------------------------------------------------------
+  deploy-check:
+    name: Deployment Gate
+    runs-on: ubuntu-latest
+    needs: [code-quality, validate-notebooks]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Dry-run deploy to staging path
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          python3 scripts/deploy_notebooks.py \
+            --host "$DATABRICKS_HOST" \
+            --token "$DATABRICKS_TOKEN" \
+            --workspace-path "/Workspace/Zomato-Analytics" \
+            --dry-run
+
+  # -----------------------------------------------------------------------
+  # Job 4: CI Status Gate (for branch protection rules)
   # -----------------------------------------------------------------------
   ci-passed:
     name: CI Passed
     runs-on: ubuntu-latest
-    needs: [code-quality, validate-notebooks]
+    needs: [code-quality, validate-notebooks, deploy-check]
     if: always()
     steps:
       - name: Check CI results
@@ -135,6 +168,13 @@ jobs:
             echo "✗ CI checks failed!"
             echo "  Code Quality : ${{ needs.code-quality.result }}"
             echo "  Notebooks    : ${{ needs.validate-notebooks.result }}"
+            exit 1
+          fi
+          # deploy-check only runs on PRs — skip check on push events
+          if [[ "${{ needs.deploy-check.result }}" != "success" && \
+                "${{ needs.deploy-check.result }}" != "skipped" ]]; then
+            echo "✗ Deployment gate failed!"
+            echo "  Deploy Check : ${{ needs.deploy-check.result }}"
             exit 1
           fi
           echo "✓ All CI checks passed — ready for merge"

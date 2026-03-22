@@ -2,6 +2,7 @@
 # Zomato Analytics — CD Pipeline
 # Triggers ONLY when a PR is merged into main.
 # Deploys notebooks to Databricks workspace using REST API.
+# Includes post-deployment smoke test and auto-revert on failure.
 ###############################################################################
 
 name: CD — Deploy to Databricks
@@ -28,8 +29,9 @@ env:
   WORKSPACE_PATH: "/Workspace/Zomato-Analytics"
 
 permissions:
-  contents: read
+  contents: write
   deployments: write
+  pull-requests: write
 
 jobs:
   deploy:
@@ -44,6 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 2
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -54,6 +57,7 @@ jobs:
         run: pip install requests
 
       - name: Deploy notebooks to Databricks
+        id: deploy
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -63,7 +67,20 @@ jobs:
             --token "$DATABRICKS_TOKEN" \
             --workspace-path "${{ env.WORKSPACE_PATH }}"
 
+      - name: Smoke test — verify all notebooks exist
+        id: smoke_test
+        if: steps.deploy.outcome == 'success'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          python3 scripts/smoke_test.py \
+            --host "$DATABRICKS_HOST" \
+            --token "$DATABRICKS_TOKEN" \
+            --workspace-path "${{ env.WORKSPACE_PATH }}"
+
       - name: Deployment summary
+        if: steps.smoke_test.outcome == 'success'
         run: |
           echo "=============================================="
           echo "  DEPLOYMENT SUMMARY"
@@ -82,3 +99,50 @@ jobs:
           echo "    ${{ env.WORKSPACE_PATH }}/dashboard/04_analytics_dashboard"
           echo "    ${{ env.WORKSPACE_PATH }}/orchestration/05_run_pipeline"
           echo "=============================================="
+
+  # -------------------------------------------------------------------
+  # Auto-revert: if deploy or smoke test fails, revert the merge commit
+  # so main always stays in a deployable state.
+  # -------------------------------------------------------------------
+  auto-revert:
+    name: Auto-Revert on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: failure() && github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 5
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Revert the merge commit
+        run: |
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          echo "=============================================="
+          echo "  AUTO-REVERT: Deployment failed!"
+          echo "=============================================="
+          echo "  Reverting merge commit: $MERGE_SHA"
+          echo "  PR: #${{ github.event.pull_request.number }}"
+          echo ""
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git revert --no-edit -m 1 "$MERGE_SHA"
+          git push origin main
+
+          echo "  ✓ Merge commit reverted — main is restored"
+          echo "=============================================="
+
+      - name: Comment on PR about revert
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## ⚠️ Auto-Reverted\n\nThe deployment to Databricks **failed** after this PR was merged. The merge commit has been automatically reverted to keep \`main\` in a deployable state.\n\n**What to do:**\n1. Check the [failed workflow run](${context.payload.pull_request.html_url}/checks) for error details\n2. Fix the issue on your branch\n3. Open a new PR\n\n---\n🤖 *Automated by CD pipeline*`
+            });

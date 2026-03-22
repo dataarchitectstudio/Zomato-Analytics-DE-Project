@@ -28,6 +28,17 @@ NOTEBOOKS = [
 ]
 
 
+def _get_required_dirs(workspace_root: str) -> list:
+    """Auto-derive required directories from NOTEBOOKS list.
+    This ensures we never miss creating a parent folder."""
+    dirs = {workspace_root}
+    for _, remote_name in NOTEBOOKS:
+        parts = remote_name.split("/")
+        if len(parts) > 1:
+            dirs.add(f"{workspace_root}/{parts[0]}")
+    return sorted(dirs)
+
+
 def _api_request(host: str, token: str, method: str, endpoint: str, payload: dict = None) -> dict:
     """Make authenticated request to Databricks REST API."""
     url = f"{host.rstrip('/')}/api/2.0{endpoint}"
@@ -81,25 +92,37 @@ def verify_notebook(host: str, token: str, path: str) -> bool:
     return result.get("object_type") == "NOTEBOOK"
 
 
+def delete_directory(host: str, token: str, path: str) -> bool:
+    """Delete a directory from the Databricks workspace (for cleanup)."""
+    result = _api_request(host, token, "POST", "/workspace/delete", {"path": path, "recursive": True})
+    return "error" not in result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy notebooks to Databricks")
     parser.add_argument("--host", required=True, help="Databricks workspace URL")
     parser.add_argument("--token", required=True, help="Databricks PAT")
     parser.add_argument("--workspace-path", required=True, help="Target workspace path")
+    parser.add_argument("--dry-run", action="store_true", help="Deploy to staging path, verify, then cleanup")
     args = parser.parse_args()
 
     host = args.host.rstrip("/")
     workspace_root = args.workspace_path.rstrip("/")
 
+    if args.dry_run:
+        workspace_root = f"{workspace_root}--ci-check"
+
+    mode = "DRY-RUN (Pre-Merge Check)" if args.dry_run else "PRODUCTION"
+
     print("=" * 60)
-    print("  Databricks Notebook Deployment")
+    print(f"  Databricks Notebook Deployment — {mode}")
     print("=" * 60)
     print(f"  Host      : {host}")
     print(f"  Workspace : {workspace_root}")
     print("-" * 60)
 
-    # Step 1: Create directories
-    dirs_to_create = [workspace_root, f"{workspace_root}/bronze", f"{workspace_root}/silver", f"{workspace_root}/gold", f"{workspace_root}/dashboard"]
+    # Step 1: Create directories (auto-derived from NOTEBOOKS list)
+    dirs_to_create = _get_required_dirs(workspace_root)
     for d in dirs_to_create:
         create_directory(host, args.token, d)
     print("  ✓ Workspace directories created")
@@ -109,24 +132,29 @@ def main():
     for local_path, remote_name in NOTEBOOKS:
         remote_path = f"{workspace_root}/{remote_name}"
         print(f"\n  Deploying: {local_path}")
-        print(f"       → {remote_path}")
+        print(f"       -> {remote_path}")
 
         success = deploy_notebook(host, args.token, local_path, remote_path)
         if success:
-            # Verify
             verified = verify_notebook(host, args.token, remote_path)
             if verified:
-                print(f"       ✓ Deployed and verified")
+                print("       ✓ Deployed and verified")
             else:
-                print(f"       ⚠ Deployed but verification pending")
+                print("       ⚠ Deployed but verification pending")
         else:
-            print(f"       ✗ FAILED")
+            print("       ✗ FAILED")
             all_passed = False
 
-    # Step 3: Summary
+    # Step 3: Cleanup if dry-run
+    if args.dry_run:
+        print(f"\n  Cleaning up staging path: {workspace_root}")
+        delete_directory(host, args.token, workspace_root)
+        print("  ✓ Staging path cleaned up")
+
+    # Step 4: Summary
     print("\n" + "=" * 60)
     if all_passed:
-        print("  ✓ All notebooks deployed successfully")
+        print(f"  ✓ All notebooks {'verified' if args.dry_run else 'deployed'} successfully")
     else:
         print("  ✗ Some deployments failed!")
         sys.exit(1)

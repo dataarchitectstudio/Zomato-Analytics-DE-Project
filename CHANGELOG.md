@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.0] - 2026-03-22
+
+### Added
+
+- **Data Generator Notebook** (`notebooks/setup/01_generate_data.py`)
+  - Runs on Databricks — generates synthetic data using Faker
+  - Writes Parquet to Unity Catalog Volume (`/Volumes/zomato_analytics/raw/landing/`)
+  - Generates customers (10K), restaurants (2.5K), orders (150K), deliveries (~110K), reviews (120K)
+  - India-localized fake data with deterministic ID generation
+- **Databricks Job Auto-Creation** (`scripts/create_databricks_job.py`)
+  - REST API script to create/update Databricks Job automatically
+  - 6-task dependency chain: DDL → Data Gen → Bronze → Silver → Gold → Dashboard
+  - Email alerts to `dataarchitectstudio@gmail.com` on success/failure
+  - CD pipeline auto-creates the job after notebook deployment
+- **Deployment Gate in CI** — Pre-merge dry-run deployment to staging path
+  - Catches deployment issues before code is merged to main
+- **Auto-Revert on CD Failure** — Reverts merge commit if deployment fails
+  - Comments on PR with failure details and next steps
+- **Dashboard Link in Email** — Pipeline alert emails include clickable link to dashboard
+
+### Changed
+
+- **Table DDL** — Now creates `raw` schema and `landing` Volume for data generator output
+- **Pipeline Orchestrator** — Added data generation step; emails include dashboard link
+- **CD Pipeline** — Now deploys 7 notebooks + creates Databricks Job + smoke test
+- **Smoke Test** — Verifies all 7 notebooks (added data generator)
+- **Deploy Script** — Auto-derives directories from notebook list; supports `--dry-run`
+- **README** — Updated architecture diagram, project structure, pipeline flow
+
+---
+
 ## [1.1.0] - 2026-03-22
 
 ### Added

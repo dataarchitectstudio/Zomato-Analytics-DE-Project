@@ -20,6 +20,7 @@ import requests
 # Notebooks to deploy: (local_path, remote_name)
 NOTEBOOKS = [
     ("notebooks/setup/00_create_tables.py", "setup/00_create_tables"),
+    ("notebooks/setup/01_generate_data.py", "setup/01_generate_data"),
     ("notebooks/bronze/01_bronze_ingestion.py", "bronze/01_bronze_ingestion"),
     ("notebooks/silver/02_silver_transformation.py", "silver/02_silver_transformation"),
     ("notebooks/gold/03_gold_aggregation.py", "gold/03_gold_aggregation"),

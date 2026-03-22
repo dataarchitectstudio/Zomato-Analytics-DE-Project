@@ -99,7 +99,7 @@ def main():
     print("-" * 60)
 
     # Step 1: Create directories
-    dirs_to_create = [workspace_root, f"{workspace_root}/bronze", f"{workspace_root}/silver", f"{workspace_root}/gold", f"{workspace_root}/dashboard"]
+    dirs_to_create = [workspace_root, f"{workspace_root}/setup", f"{workspace_root}/bronze", f"{workspace_root}/silver", f"{workspace_root}/gold", f"{workspace_root}/dashboard", f"{workspace_root}/orchestration"]
     for d in dirs_to_create:
         create_directory(host, args.token, d)
     print("  ✓ Workspace directories created")

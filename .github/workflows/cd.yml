@@ -1,0 +1,82 @@
+###############################################################################
+# Zomato Analytics — CD Pipeline
+# Triggers ONLY when a PR is merged into main.
+# Deploys notebooks to Databricks workspace using REST API.
+###############################################################################
+
+name: CD — Deploy to Databricks
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  PYTHON_VERSION: "3.11"
+  WORKSPACE_PATH: "/Workspace/Zomato-Analytics"
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: Deploy to Databricks
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Deploy notebooks to Databricks
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          python3 scripts/deploy_notebooks.py \
+            --host "$DATABRICKS_HOST" \
+            --token "$DATABRICKS_TOKEN" \
+            --workspace-path "${{ env.WORKSPACE_PATH }}"
+
+      - name: Deployment summary
+        run: |
+          echo "=============================================="
+          echo "  DEPLOYMENT SUMMARY"
+          echo "=============================================="
+          echo "  Trigger     : ${{ github.event_name }}"
+          echo "  PR          : #${{ github.event.pull_request.number || 'N/A' }}"
+          echo "  Merged by   : ${{ github.actor }}"
+          echo "  Commit      : ${{ github.sha }}"
+          echo "  Timestamp   : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          echo "  Notebooks deployed to:"
+          echo "    ${{ env.WORKSPACE_PATH }}/bronze/01_bronze_ingestion"
+          echo "    ${{ env.WORKSPACE_PATH }}/silver/02_silver_transformation"
+          echo "    ${{ env.WORKSPACE_PATH }}/gold/03_gold_aggregation"
+          echo "    ${{ env.WORKSPACE_PATH }}/dashboard/04_analytics_dashboard"
+          echo "=============================================="

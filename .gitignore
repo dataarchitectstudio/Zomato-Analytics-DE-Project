@@ -1,0 +1,59 @@
+# =============================================================================
+# Zomato Analytics — .gitignore
+# =============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Generated Data ---
+data/
+*.parquet
+*.csv
+!requirements.txt
+
+# --- Test Artifacts ---
+htmlcov/
+.coverage
+coverage.xml
+test-results.xml
+.pytest_cache/
+.mypy_cache/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+.databrickscfg
+
+# --- Build ---
+dist/
+*.tar.gz
+*.whl

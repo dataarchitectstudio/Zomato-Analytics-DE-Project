@@ -30,6 +30,7 @@ def main():
 
     expected_notebooks = [
         f"{args.workspace_path}/setup/00_create_tables",
+        f"{args.workspace_path}/setup/01_generate_data",
         f"{args.workspace_path}/bronze/01_bronze_ingestion",
         f"{args.workspace_path}/silver/02_silver_transformation",
         f"{args.workspace_path}/gold/03_gold_aggregation",

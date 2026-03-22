@@ -7,19 +7,19 @@ Enterprise-grade data engineering pipeline for Zomato restaurant analytics, buil
 ## Architecture Overview
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Data Source  │────▶│    BRONZE    │────▶│    SILVER    │────▶│     GOLD     │
-│  (Faker Gen) │     │  Raw Ingest  │     │  Cleanse &   │     │  Aggregated  │
-│              │     │  As-Is Data  │     │  Transform   │     │  Business    │
-│              │     │  + Audit     │     │  + DQ Checks │     │  KPIs        │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
-                                                                      │
-                                                                      ▼
-                                                               ┌──────────────┐
-                                                               │  DASHBOARD   │
-                                                               │  Executive   │
-                                                               │  Analytics   │
-                                                               └──────────────┘
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│    DDL       │────▶│  DATA GEN    │────▶│    BRONZE    │────▶│    SILVER    │────▶│     GOLD     │
+│  Create      │     │  Faker Gen   │     │  Raw Ingest  │     │  Cleanse &   │     │  Aggregated  │
+│  Catalog &   │     │  → Parquet   │     │  As-Is Data  │     │  Transform   │     │  Business    │
+│  Tables      │     │  → Volume    │     │  + Audit     │     │  + DQ Checks │     │  KPIs        │
+└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
+                                                                                           │
+                                                                                           ▼
+                                                                                    ┌──────────────┐
+                                                                                    │  DASHBOARD   │
+                                                                                    │  + Email     │
+                                                                                    │  Alerts      │
+                                                                                    └──────────────┘
 ```
 
 ### Unity Catalog Namespace
@@ -28,6 +28,7 @@ All objects live under a **dedicated catalog** — zero impact on existing works
 
 ```
 zomato_analytics                    ← dedicated catalog
+  ├── raw.landing (Volume)          ← Parquet files from data generator
   ├── bronze.*                      ← raw ingested data
   ├── silver.*                      ← cleansed & conformed
   └── gold.*                        ← business aggregations
@@ -64,7 +65,8 @@ Zomato-Analytics-DE-Project/
 │   └── databricks_job_config.json              # Databricks multi-task job definition
 ├── notebooks/
 │   ├── setup/
-│   │   └── 00_create_tables.py                 # DDL — create catalog, schemas & tables
+│   │   ├── 00_create_tables.py                 # DDL — create catalog, schemas, volumes & tables
+│   │   └── 01_generate_data.py                 # Generate synthetic data on Databricks
 │   ├── bronze/
 │   │   └── 01_bronze_ingestion.py              # Bronze layer notebook
 │   ├── silver/
@@ -77,6 +79,7 @@ Zomato-Analytics-DE-Project/
 │       └── 05_run_pipeline.py                  # Full pipeline orchestrator with alerts
 ├── scripts/
 │   ├── deploy_notebooks.py                     # REST API deployment script
+│   ├── create_databricks_job.py                # Auto-create/update Databricks Job via REST API
 │   └── smoke_test.py                           # Post-deployment verification
 ├── tests/
 │   ├── __init__.py
@@ -246,6 +249,7 @@ Triggered **only when a PR is merged** into `main`:
 | Notebook | Workspace Path |
 |----------|---------------|
 | Table DDL | `/Workspace/Zomato-Analytics/setup/00_create_tables` |
+| Data Generator | `/Workspace/Zomato-Analytics/setup/01_generate_data` |
 | Bronze | `/Workspace/Zomato-Analytics/bronze/01_bronze_ingestion` |
 | Silver | `/Workspace/Zomato-Analytics/silver/02_silver_transformation` |
 | Gold | `/Workspace/Zomato-Analytics/gold/03_gold_aggregation` |
@@ -267,34 +271,35 @@ Run the single orchestrator notebook that executes everything in order:
 3. Click **Run All**
 
 The orchestrator will:
-- Create catalog, schemas & tables (DDL)
+- Create catalog, schemas, volumes & tables (DDL)
+- Generate synthetic data (Faker) and write to landing volume
 - Run Bronze → Silver → Gold pipeline
 - Refresh the dashboard
-- Send success/failure alerts with record counts
+- Send email alerts with record counts and dashboard link
 
 ### Option 2: Run Notebooks Individually
 
 Run in order:
 
-1. `setup/00_create_tables` — Create catalog, schemas & tables
-2. `bronze/01_bronze_ingestion` — Ingest raw data
-3. `silver/02_silver_transformation` — Cleanse & transform
-4. `gold/03_gold_aggregation` — Build business aggregations
-5. `dashboard/04_analytics_dashboard` — View analytics
+1. `setup/00_create_tables` — Create catalog, schemas, volumes & tables
+2. `setup/01_generate_data` — Generate synthetic data to landing volume
+3. `bronze/01_bronze_ingestion` — Ingest raw data
+4. `silver/02_silver_transformation` — Cleanse & transform
+5. `gold/03_gold_aggregation` — Build business aggregations
+6. `dashboard/04_analytics_dashboard` — View analytics
 
 ### Option 3: Databricks Job (Scheduled)
 
 Use `deploy/databricks_job_config.json` to create a multi-task job:
 
 ```
-create_tables → bronze_ingestion → silver_transformation → gold_aggregation → dashboard_refresh
+create_tables → generate_data → bronze_ingestion → silver_transformation → gold_aggregation → dashboard_refresh
 ```
 
-The job includes:
+The job is **auto-created by CD** and includes:
 - Task dependencies (each step waits for the previous)
-- Configurable schedule (default: daily 2:00 AM IST)
-- Email notifications on success and failure
-- Webhook notifications (Slack/Teams)
+- Configurable schedule (default: daily 2:00 AM IST, starts paused)
+- Email notifications to `dataarchitectstudio@gmail.com` on success/failure
 - Auto-retry on Bronze ingestion failures
 
 ### Pipeline Alerts

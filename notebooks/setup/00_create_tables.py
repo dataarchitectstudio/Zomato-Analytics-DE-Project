@@ -38,14 +38,20 @@ spark.sql(f"""
     'Zomato Analytics DE Project — Isolated catalog for medallion architecture. Safe to DROP without affecting other workspace objects.'
 """)
 
-for schema in ["bronze", "silver", "gold"]:
+for schema in ["raw", "bronze", "silver", "gold"]:
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{schema}")
 
+spark.sql(f"COMMENT ON SCHEMA {CATALOG}.raw IS 'Raw landing zone — source data files before ingestion'")
 spark.sql(f"COMMENT ON SCHEMA {CATALOG}.bronze IS 'Raw ingested data with audit columns'")
 spark.sql(f"COMMENT ON SCHEMA {CATALOG}.silver IS 'Cleansed, deduplicated, and conformed data'")
 spark.sql(f"COMMENT ON SCHEMA {CATALOG}.gold IS 'Business aggregations, dimensions, and fact tables'")
 
+# Create a managed Volume for landing data (Parquet files from data generator)
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.raw.landing")
+spark.sql(f"COMMENT ON VOLUME {CATALOG}.raw.landing IS 'Landing zone for raw source data files'")
+
 print(f"✓ Catalog '{CATALOG}' and schemas created")
+print(f"✓ Volume '{CATALOG}.raw.landing' created")
 spark.sql(f"SHOW SCHEMAS IN {CATALOG}").show()
 
 # COMMAND ----------

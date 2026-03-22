@@ -9,13 +9,11 @@ Usage:
 import argparse
 import logging
 import os
-import sys
 import time
-from pathlib import Path
 
 import pandas as pd
 
-from .config import DataVolumeConfig, ZomatoDataConfig, OUTPUT_DIR, OUTPUT_FORMAT
+from .config import OUTPUT_DIR, OUTPUT_FORMAT, DataVolumeConfig, ZomatoDataConfig
 from .generators import (
     generate_customers,
     generate_deliveries,
@@ -119,10 +117,20 @@ def run(output_dir: str = OUTPUT_DIR, fmt: str = OUTPUT_FORMAT) -> None:
     elapsed = time.time() - overall_start
     logger.info("-" * 60)
     logger.info("Data generation complete in %.1fs", elapsed)
-    logger.info("Total records generated: %d", sum([
-        len(df_customers), len(df_restaurants), len(df_menu_items),
-        len(df_orders), len(df_order_items), len(df_deliveries), len(df_reviews),
-    ]))
+    logger.info(
+        "Total records generated: %d",
+        sum(
+            [
+                len(df_customers),
+                len(df_restaurants),
+                len(df_menu_items),
+                len(df_orders),
+                len(df_order_items),
+                len(df_deliveries),
+                len(df_reviews),
+            ]
+        ),
+    )
     logger.info("=" * 60)
 
 

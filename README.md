@@ -1,6 +1,6 @@
 # Zomato Analytics — Data Engineering Project
 
-Enterprise-grade data engineering pipeline for Zomato restaurant analytics, built on the **Medallion Architecture** (Bronze → Silver → Gold) with automated CI/CD deployment to Databricks.
+Enterprise-grade data engineering pipeline for Zomato restaurant analytics, built on the **Medallion Architecture** (Bronze → Silver → Gold) with **Unity Catalog** isolation and automated CI/CD deployment to **Databricks Free Edition**.
 
 ---
 
@@ -22,13 +22,24 @@ Enterprise-grade data engineering pipeline for Zomato restaurant analytics, buil
                                                                └──────────────┘
 ```
 
+### Unity Catalog Namespace
+
+All objects live under a **dedicated catalog** — zero impact on existing workspace objects:
+
+```
+zomato_analytics                    ← dedicated catalog
+  ├── bronze.*                      ← raw ingested data
+  ├── silver.*                      ← cleansed & conformed
+  └── gold.*                        ← business aggregations
+```
+
 ### Medallion Layers
 
-| Layer | Database | Purpose | Key Features |
-|-------|----------|---------|-------------|
-| **Bronze** | `zomato_bronze` | Raw ingestion | Schema enforcement, audit columns, SHA-256 row hashing, incremental merge |
-| **Silver** | `zomato_silver` | Cleansed & conformed | Deduplication, null handling, data type casting, referential integrity, business rules |
-| **Gold** | `zomato_gold` | Business aggregations | Dimension tables, fact tables, KPI aggregations, RFM scoring, cohort analysis |
+| Layer | Namespace | Purpose | Key Features |
+|-------|-----------|---------|-------------|
+| **Bronze** | `zomato_analytics.bronze` | Raw ingestion | Schema enforcement, audit columns, SHA-256 row hashing, incremental merge |
+| **Silver** | `zomato_analytics.silver` | Cleansed & conformed | Deduplication, null handling, data type casting, referential integrity, business rules |
+| **Gold** | `zomato_analytics.gold` | Business aggregations | Dimension tables, fact tables, KPI aggregations, RFM scoring, cohort analysis |
 | **Dashboard** | — | Executive analytics | Platform KPIs, revenue trends, city heatmaps, restaurant leaderboard, SLA monitoring |
 
 ---
@@ -39,33 +50,38 @@ Enterprise-grade data engineering pipeline for Zomato restaurant analytics, buil
 Zomato-Analytics-DE-Project/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                          # CI: lint, test, validate, package
-│       └── cd.yml                          # CD: deploy notebooks to Databricks
+│       ├── ci.yml                              # CI: lint, test, validate notebooks
+│       └── cd.yml                              # CD: deploy notebooks to Databricks
 ├── config/
 │   ├── __init__.py
-│   └── pipeline_config.py                  # Environment configs (dev/staging/prod)
+│   └── pipeline_config.py                      # Environment configs (dev/staging/prod)
 ├── data_generator/
 │   ├── __init__.py
-│   ├── config.py                           # Data generation parameters
-│   ├── generators.py                       # Faker-based data generators
-│   └── main.py                             # CLI entrypoint for data generation
+│   ├── config.py                               # Data generation parameters
+│   ├── generators.py                           # Faker-based data generators
+│   └── main.py                                 # CLI entrypoint for data generation
 ├── deploy/
-│   └── databricks_job_config.json          # Databricks workflow job definition
+│   └── databricks_job_config.json              # Databricks multi-task job definition
 ├── notebooks/
+│   ├── setup/
+│   │   └── 00_create_tables.py                 # DDL — create catalog, schemas & tables
 │   ├── bronze/
-│   │   └── 01_bronze_ingestion.py          # Bronze layer notebook
+│   │   └── 01_bronze_ingestion.py              # Bronze layer notebook
 │   ├── silver/
-│   │   └── 02_silver_transformation.py     # Silver layer notebook
+│   │   └── 02_silver_transformation.py         # Silver layer notebook
 │   ├── gold/
-│   │   └── 03_gold_aggregation.py          # Gold layer notebook
-│   └── dashboard/
-│       └── 04_analytics_dashboard.py       # Executive dashboard notebook
+│   │   └── 03_gold_aggregation.py              # Gold layer notebook
+│   ├── dashboard/
+│   │   └── 04_analytics_dashboard.py           # Executive dashboard notebook
+│   └── orchestration/
+│       └── 05_run_pipeline.py                  # Full pipeline orchestrator with alerts
 ├── scripts/
-│   └── smoke_test.py                       # Post-deployment verification
+│   ├── deploy_notebooks.py                     # REST API deployment script
+│   └── smoke_test.py                           # Post-deployment verification
 ├── tests/
 │   ├── __init__.py
-│   └── test_data_generator.py              # Unit tests for data generators
-├── .env.example                            # Environment variable template
+│   └── test_data_generator.py                  # Unit tests for data generators
+├── .env.example                                # Environment variable template
 ├── .gitignore
 ├── CHANGELOG.md
 ├── README.md
@@ -93,7 +109,7 @@ Zomato-Analytics-DE-Project/
 | Table | Type | Description |
 |-------|------|-------------|
 | `dim_customers` | Dimension | Customer profiles with RFM scoring & lifetime metrics |
-| `dim_restaurants` | Dimension | Restaurant profiles with health scores |
+| `dim_restaurants` | Dimension | Restaurant profiles with composite health scores |
 | `fact_orders` | Fact | Denormalized order fact with customer & restaurant context |
 | `agg_daily_city_metrics` | Aggregate | City-level daily KPIs |
 | `agg_restaurant_performance` | Aggregate | Restaurant performance scorecard with ranking |
@@ -108,14 +124,14 @@ Zomato-Analytics-DE-Project/
 ### Prerequisites
 
 - Python 3.11+
-- Databricks Community Edition account (free)
+- Databricks Free Edition account
 - GitHub account (for CI/CD)
 
 ### Local Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/Zomato-Analytics-DE-Project.git
+git clone https://github.com/dataarchitectstudio/Zomato-Analytics-DE-Project.git
 cd Zomato-Analytics-DE-Project
 
 # Create virtual environment
@@ -152,58 +168,147 @@ pytest tests/ -v --cov=data_generator
 
 ---
 
+## Databricks Setup — Getting Credentials
+
+### Step 1: Create a Databricks Free Edition Account
+
+1. Go to [databricks.com/try-databricks](https://www.databricks.com/try-databricks) and sign up for the **Free Edition**
+2. Complete the registration and log in to your workspace
+3. Note your **workspace URL** from the browser address bar — this is your `DATABRICKS_HOST`:
+   ```
+   https://adb-1234567890123456.7.azuredatabricks.net
+   ```
+
+### Step 2: Generate a Personal Access Token (PAT)
+
+1. In your Databricks workspace, click your **profile icon** (top-right corner)
+2. Click **"Settings"**
+3. In the left sidebar, click **"Developer"**
+4. Under **"Access tokens"**, click **"Manage"**
+5. Click **"Generate new token"**
+6. Enter description: `github-actions-deploy`
+7. Set lifetime (days) or leave blank for no expiry
+8. Click **"Generate"**
+9. **Copy the token immediately** — it starts with `dapi` and you cannot view it again
+
+### Step 3: Store Secrets in GitHub
+
+1. Go to your GitHub repo: [github.com/dataarchitectstudio/Zomato-Analytics-DE-Project](https://github.com/dataarchitectstudio/Zomato-Analytics-DE-Project)
+2. Click **"Settings"** tab (top navigation bar)
+3. In the left sidebar, scroll to **"Security"** section
+4. Click **"Secrets and variables"** → **"Actions"**
+5. Click **"New repository secret"** and add:
+
+| Secret Name | Value | Example |
+|-------------|-------|---------|
+| `DATABRICKS_HOST` | Your workspace URL | `https://adb-1234567890123456.7.azuredatabricks.net` |
+| `DATABRICKS_TOKEN` | Your PAT token | `dapi0123456789abcdef...` |
+
+### Step 4 (Recommended): Set Up Branch Protection
+
+1. Go to **Settings** → **Branches** → **Add branch protection rule**
+2. Branch name pattern: `main`
+3. Enable:
+   - **Require a pull request before merging**
+   - **Require status checks to pass** → select `CI Passed`
+
+---
+
 ## CI/CD Pipeline
+
+### How It Works
+
+```
+feature/* branch ──push──▶ CI runs (lint, test, validate notebooks)
+       │
+       └── open PR to main ──▶ CI runs again on PR
+                │
+                └── merge PR ──▶ CD deploys all 6 notebooks to Databricks
+```
 
 ### CI — Continuous Integration (`.github/workflows/ci.yml`)
 
-Triggered on every push and pull request:
+Triggered on push to `feature/**` branches and PRs targeting `main`:
 
-1. **Lint** — Black, isort, Flake8, MyPy
-2. **Test** — pytest with coverage reporting
-3. **Validate** — Notebook syntax check + secret scanning
-4. **Package** — Bundle notebooks as deployment artifact
+1. **Flake8 Lint** — Code quality checks
+2. **Unit Tests** — pytest with coverage
+3. **Notebook Validation** — Syntax check + hardcoded secret scanning
 
 ### CD — Continuous Deployment (`.github/workflows/cd.yml`)
 
-Triggered on merge to `main`:
+Triggered **only when a PR is merged** into `main`:
 
-1. **Deploy** — Push notebooks to Databricks workspace via CLI
-2. **Verify** — Confirm all notebooks exist in workspace
-3. **Smoke Test** — Validate deployment via API
+1. **Deploy** — Uploads all notebooks to Databricks via REST API
+2. **Verify** — Confirms notebooks exist in workspace
 
-### GitHub Secrets Required
+### Notebooks Deployed
 
-| Secret | Description |
-|--------|-------------|
-| `DATABRICKS_HOST` | Databricks workspace URL (e.g., `https://community.cloud.databricks.com`) |
-| `DATABRICKS_TOKEN` | Personal Access Token from Databricks |
-
-### Setting Up Databricks Community Edition
-
-1. Sign up at [community.cloud.databricks.com](https://community.cloud.databricks.com)
-2. Go to **User Settings** → **Developer** → **Access Tokens**
-3. Generate a new token and add it as a GitHub secret
+| Notebook | Workspace Path |
+|----------|---------------|
+| Table DDL | `/Workspace/Zomato-Analytics/setup/00_create_tables` |
+| Bronze | `/Workspace/Zomato-Analytics/bronze/01_bronze_ingestion` |
+| Silver | `/Workspace/Zomato-Analytics/silver/02_silver_transformation` |
+| Gold | `/Workspace/Zomato-Analytics/gold/03_gold_aggregation` |
+| Dashboard | `/Workspace/Zomato-Analytics/dashboard/04_analytics_dashboard` |
+| Orchestrator | `/Workspace/Zomato-Analytics/orchestration/05_run_pipeline` |
 
 ---
 
 ## Pipeline Execution on Databricks
 
-### Manual Execution
+### Option 1: Run the Orchestrator (Recommended)
 
-Import and run notebooks in order:
+Run the single orchestrator notebook that executes everything in order:
 
-1. `bronze/01_bronze_ingestion` — Ingest raw data
-2. `silver/02_silver_transformation` — Cleanse & transform
-3. `gold/03_gold_aggregation` — Build business aggregations
-4. `dashboard/04_analytics_dashboard` — View analytics
+1. Open `/Workspace/Zomato-Analytics/orchestration/05_run_pipeline`
+2. Set parameters:
+   - `catalog_name`: `zomato_analytics`
+   - `webhook_url`: (optional) Slack/Teams webhook for alerts
+3. Click **Run All**
 
-### Automated Workflow
+The orchestrator will:
+- Create catalog, schemas & tables (DDL)
+- Run Bronze → Silver → Gold pipeline
+- Refresh the dashboard
+- Send success/failure alerts with record counts
 
-Use the job config in `deploy/databricks_job_config.json` to create a scheduled workflow with task dependencies:
+### Option 2: Run Notebooks Individually
+
+Run in order:
+
+1. `setup/00_create_tables` — Create catalog, schemas & tables
+2. `bronze/01_bronze_ingestion` — Ingest raw data
+3. `silver/02_silver_transformation` — Cleanse & transform
+4. `gold/03_gold_aggregation` — Build business aggregations
+5. `dashboard/04_analytics_dashboard` — View analytics
+
+### Option 3: Databricks Job (Scheduled)
+
+Use `deploy/databricks_job_config.json` to create a multi-task job:
 
 ```
-Bronze → Silver → Gold → Dashboard
+create_tables → bronze_ingestion → silver_transformation → gold_aggregation → dashboard_refresh
 ```
+
+The job includes:
+- Task dependencies (each step waits for the previous)
+- Configurable schedule (default: daily 2:00 AM IST)
+- Email notifications on success and failure
+- Webhook notifications (Slack/Teams)
+- Auto-retry on Bronze ingestion failures
+
+### Pipeline Alerts
+
+The orchestrator sends alerts with:
+- Pipeline status (SUCCESS / FAILED)
+- Duration per step
+- Record counts for every table across all layers
+- Error details on failure
+
+Supports:
+- **Slack** — via incoming webhook URL
+- **Microsoft Teams** — via webhook connector
+- **Email** — via Databricks notification settings
 
 ---
 
@@ -211,13 +316,15 @@ Bronze → Silver → Gold → Dashboard
 
 | Decision | Rationale |
 |----------|-----------|
+| **Unity Catalog** | Dedicated catalog ensures zero impact on existing workspace objects |
 | **Delta Lake** | ACID transactions, time travel, schema evolution |
 | **Explicit schemas** | Data contract enforcement at ingestion |
 | **SHA-256 row hashing** | Change data capture (CDC) and deduplication |
 | **RFM segmentation** | Industry-standard customer value scoring |
 | **Composite health score** | Multi-dimensional restaurant evaluation |
 | **Parameterized notebooks** | Environment-agnostic, reusable across dev/staging/prod |
-| **Databricks Community Edition** | Zero-cost deployment for learning and demos |
+| **REST API deployment** | Reliable CD — works with Databricks Free Edition |
+| **Orchestrator with alerts** | Single entry point with built-in monitoring |
 
 ---
 
@@ -225,14 +332,27 @@ Bronze → Silver → Gold → Dashboard
 
 | Component | Technology |
 |-----------|-----------|
-| **Compute** | Databricks (Community Edition / Standard) |
+| **Compute** | Databricks Free Edition |
+| **Catalog** | Unity Catalog |
 | **Storage** | Delta Lake |
 | **Language** | Python, PySpark, SQL |
 | **Data Generation** | Faker, Pandas |
 | **CI/CD** | GitHub Actions |
-| **Deployment** | Databricks CLI / REST API |
+| **Deployment** | Databricks REST API |
 | **Testing** | pytest, pytest-cov |
-| **Code Quality** | Black, isort, Flake8, MyPy |
+| **Code Quality** | Flake8 |
+| **Alerts** | Slack / Teams Webhooks, Email |
+
+---
+
+## Cleanup
+
+To remove all Zomato project objects from your Databricks workspace without affecting anything else:
+
+```sql
+-- Drop the dedicated catalog and all its schemas/tables
+DROP CATALOG IF EXISTS zomato_analytics CASCADE;
+```
 
 ---
 

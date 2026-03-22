@@ -29,7 +29,7 @@
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, current_timestamp, input_file_name, lit, sha2, concat_ws,
+    col, current_timestamp, lit, sha2, concat_ws,
 )
 from pyspark.sql.types import (
     StructType, StructField, StringType, DoubleType, BooleanType,
@@ -243,7 +243,7 @@ def ingest_to_bronze(
     enriched_df = (
         raw_df
         .withColumn("_bronze_loaded_at", current_timestamp())
-        .withColumn("_source_file", input_file_name())
+        .withColumn("_source_file", col("_metadata.file_path"))
         .withColumn(
             "_row_hash",
             sha2(concat_ws("||", *[col(c) for c in raw_df.columns]), 256),

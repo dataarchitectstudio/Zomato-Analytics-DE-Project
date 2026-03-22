@@ -29,10 +29,12 @@ def main():
     args = parser.parse_args()
 
     expected_notebooks = [
+        f"{args.workspace_path}/setup/00_create_tables",
         f"{args.workspace_path}/bronze/01_bronze_ingestion",
         f"{args.workspace_path}/silver/02_silver_transformation",
         f"{args.workspace_path}/gold/03_gold_aggregation",
         f"{args.workspace_path}/dashboard/04_analytics_dashboard",
+        f"{args.workspace_path}/orchestration/05_run_pipeline",
     ]
 
     print("=" * 50)
@@ -42,18 +44,18 @@ def main():
     all_passed = True
     for notebook_path in expected_notebooks:
         exists = verify_notebook_exists(args.host, args.token, notebook_path)
-        status = "PASS" if exists else "FAIL"
         icon = "✓" if exists else "✗"
+        status = "PASS" if exists else "FAIL"
         print(f"  [{icon}] {notebook_path}: {status}")
         if not exists:
             all_passed = False
 
     print("=" * 50)
     if all_passed:
-        print("🟢 All smoke tests passed.")
+        print("  ✓ All smoke tests passed.")
         sys.exit(0)
     else:
-        print("🔴 Some smoke tests failed!")
+        print("  ✗ Some smoke tests failed!")
         sys.exit(1)
 
 

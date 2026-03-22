@@ -8,8 +8,9 @@
 # MAGIC
 # MAGIC **Pipeline Flow**:
 # MAGIC ```
-# MAGIC 00_create_tables → 01_bronze_ingestion → 02_silver_transformation
-# MAGIC     → 03_gold_aggregation → 04_analytics_dashboard → Email Alert
+# MAGIC 00_create_tables → 01_generate_data → 01_bronze_ingestion
+# MAGIC     → 02_silver_transformation → 03_gold_aggregation
+# MAGIC     → 04_analytics_dashboard → Email Alert (with dashboard link)
 # MAGIC ```
 # MAGIC
 # MAGIC **Email Alerts**: Sends to `dataarchitectstudio@gmail.com` with:
@@ -54,9 +55,26 @@ ALERT_EMAIL_TO = "dataarchitectstudio@gmail.com"
 PIPELINE_NAME = "Zomato Analytics — Medallion Pipeline"
 # ─────────────────────────────────────────────────────────────
 
+# ─── Dashboard Link ─────────────────────────────────────────
+# Derive workspace URL from Spark config for the dashboard link in emails
+try:
+    WORKSPACE_URL = spark.conf.get("spark.databricks.workspaceUrl", "")
+    if WORKSPACE_URL and not WORKSPACE_URL.startswith("http"):
+        WORKSPACE_URL = f"https://{WORKSPACE_URL}"
+except Exception:
+    WORKSPACE_URL = ""
+
+DASHBOARD_NOTEBOOK = f"{NOTEBOOK_BASE}/dashboard/04_analytics_dashboard"
+if WORKSPACE_URL:
+    DASHBOARD_LINK = f"{WORKSPACE_URL}/#notebook{DASHBOARD_NOTEBOOK}"
+else:
+    DASHBOARD_LINK = ""
+# ─────────────────────────────────────────────────────────────
+
 print(f"Catalog      : {CATALOG}")
 print(f"Environment  : {ENV}")
 print(f"Alert Email  : {ALERT_EMAIL_TO}")
+print(f"Dashboard    : {DASHBOARD_LINK or 'Link will be generated at runtime'}")
 print(f"SMTP         : {'Configured' if SMTP_USER else 'Not configured (will print to console)'}")
 print(f"Webhook      : {'Configured' if WEBHOOK_URL else 'Not configured'}")
 
@@ -79,6 +97,13 @@ PIPELINE_STEPS = [
     },
     {
         "step": 2,
+        "name": "Generate Data",
+        "notebook": f"{NOTEBOOK_BASE}/setup/01_generate_data",
+        "timeout": 1800,
+        "params": {"catalog_name": CATALOG},
+    },
+    {
+        "step": 3,
         "name": "Bronze Ingestion",
         "notebook": f"{NOTEBOOK_BASE}/bronze/01_bronze_ingestion",
         "timeout": 1800,
@@ -90,21 +115,21 @@ PIPELINE_STEPS = [
         },
     },
     {
-        "step": 3,
+        "step": 4,
         "name": "Silver Transformation",
         "notebook": f"{NOTEBOOK_BASE}/silver/02_silver_transformation",
         "timeout": 3600,
         "params": {"catalog_name": CATALOG, "env": ENV},
     },
     {
-        "step": 4,
+        "step": 5,
         "name": "Gold Aggregation",
         "notebook": f"{NOTEBOOK_BASE}/gold/03_gold_aggregation",
         "timeout": 3600,
         "params": {"catalog_name": CATALOG, "env": ENV},
     },
     {
-        "step": 5,
+        "step": 6,
         "name": "Dashboard Refresh",
         "notebook": f"{NOTEBOOK_BASE}/dashboard/04_analytics_dashboard",
         "timeout": 1800,
@@ -213,8 +238,9 @@ def build_email_html(
     total_records: int,
     total_duration: float,
     failed_step: dict = None,
+    dashboard_link: str = "",
 ) -> str:
-    """Build an HTML email body with pipeline results."""
+    """Build an HTML email body with pipeline results and dashboard link."""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     duration_str = _format_duration(total_duration)
 
@@ -347,6 +373,18 @@ def build_email_html(
             </table>
         </div>
 
+        <!-- Dashboard Link -->
+        {f'''
+        <div style="padding: 15px; text-align: center;">
+            <a href="{dashboard_link}"
+               style="display: inline-block; background-color: #007bff; color: white; padding: 12px 30px;
+                      border-radius: 6px; text-decoration: none; font-size: 16px; font-weight: bold;">
+                Open Executive Dashboard
+            </a>
+            <p style="margin: 8px 0 0 0; font-size: 12px; color: #6c757d;">Click to view the latest analytics in Databricks</p>
+        </div>
+        ''' if dashboard_link else ''}
+
         <!-- Footer -->
         <div style="background-color: #f8f9fa; padding: 12px; border-radius: 0 0 8px 8px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d;">
             <p style="margin: 0;">Zomato Analytics Data Engineering Project | Medallion Architecture</p>
@@ -385,6 +423,7 @@ def send_email(
         total_records=total_records,
         total_duration=total_duration,
         failed_step=failed_step,
+        dashboard_link=DASHBOARD_LINK,
     )
 
     # ── Send via SMTP ──

@@ -171,6 +171,211 @@ pytest tests/ -v --cov=data_generator
 
 ---
 
+## Manual Setup on Databricks Free Edition
+
+This section walks you through running the entire pipeline manually in a Databricks Free Edition workspace — no CI/CD required. Follow the steps in order.
+
+### Step 1: Sign Up for Databricks Free Edition
+
+1. Go to [databricks.com/try-databricks](https://www.databricks.com/try-databricks)
+2. Select **"Get started for free"** and sign up using your Google, Microsoft, or email account
+3. Choose **AWS**, **Azure**, or **GCP** as your cloud provider (all work with the free tier)
+4. Wait for your workspace to provision — this usually takes 2–3 minutes
+5. Once ready, click **"Open workspace"** — your workspace URL will look like:
+   ```
+   https://adb-1234567890123456.7.azuredatabricks.net
+   ```
+
+> **Note**: Databricks Free Edition includes Unity Catalog, serverless compute, and enough resources to run this entire project.
+
+---
+
+### Step 2: Create a Cluster
+
+You need a running cluster to execute notebooks.
+
+1. In the left sidebar, click **"Compute"**
+2. Click **"Create compute"**
+3. Fill in the following settings:
+
+   | Setting | Value |
+   |---------|-------|
+   | Cluster name | `zomato-analytics-cluster` |
+   | Policy | **Unrestricted** |
+   | Single node / Multi node | **Single node** (sufficient for this project) |
+   | Databricks runtime | **15.4 LTS** (or latest LTS with Spark 3.5+) |
+   | Node type | Default (e.g., `Standard_DS3_v2` on Azure) |
+   | Auto-terminate | **30 minutes** of inactivity |
+
+4. Click **"Create compute"** and wait for the cluster to reach **Running** state (2–4 minutes)
+
+> **Tip**: The Free Edition includes a default serverless cluster — you can also use that directly when opening a notebook, without creating a cluster manually.
+
+---
+
+### Step 3: Import Notebooks into Your Workspace
+
+#### Option A — Import from GitHub (Recommended)
+
+1. In the left sidebar, click **"Workspace"**
+2. Navigate to **Workspace → Users → your-email@example.com**
+3. Click the **"⋮"** (kebab menu) → **"Create"** → **"Folder"** → name it `Zomato-Analytics`
+4. Inside that folder, create sub-folders: `setup`, `bronze`, `silver`, `gold`, `dashboard`
+5. For each notebook, click inside the target sub-folder → **"⋮"** → **"Import"** → select **"URL"** and paste the raw GitHub URL:
+
+   | Sub-folder | Notebook | Raw GitHub URL |
+   |---|---|---|
+   | `setup` | `00_create_tables` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/setup/00_create_tables.py` |
+   | `setup` | `01_generate_data` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/setup/01_generate_data.py` |
+   | `bronze` | `01_bronze_ingestion` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/bronze/01_bronze_ingestion.py` |
+   | `silver` | `02_silver_transformation` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/silver/02_silver_transformation.py` |
+   | `gold` | `03_gold_aggregation` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/gold/03_gold_aggregation.py` |
+   | `dashboard` | `04_analytics_dashboard` | `https://raw.githubusercontent.com/dataarchitectstudio/Zomato-Analytics-DE-Project/main/notebooks/dashboard/04_analytics_dashboard.py` |
+
+#### Option B — Import from Local Files
+
+1. Clone this repo to your machine:
+   ```bash
+   git clone https://github.com/dataarchitectstudio/Zomato-Analytics-DE-Project.git
+   ```
+2. In Databricks, navigate to a sub-folder → **"Import"** → select **"File"** → upload the `.py` file directly
+
+---
+
+### Step 4: Attach Notebooks to the Cluster
+
+Before running any notebook:
+
+1. Open the notebook in Databricks
+2. In the top-left dropdown (next to the notebook title), select your cluster **`zomato-analytics-cluster`**
+3. Wait for the cluster to connect (the dot next to the cluster name turns green)
+
+You only need to do this once per notebook session — if you have **serverless** enabled, notebooks attach automatically.
+
+---
+
+### Step 5: Run the Notebooks in Order
+
+Run each notebook sequentially using the **"Run All"** button (top toolbar → **▶ Run all**).
+
+#### 5.1 — Create Tables (`setup/00_create_tables`)
+
+This is the **one-time setup step**. It creates the dedicated Unity Catalog, all schemas, the landing Volume, and every Delta table shell.
+
+- **Widget**: `catalog_name` = `zomato_analytics` (default, leave as-is)
+- **Expected output**: All Bronze, Silver, Gold, and Audit tables created
+- **Rerunnable**: Yes — all statements use `IF NOT EXISTS`
+
+#### 5.2 — Generate Synthetic Data (`setup/01_generate_data`)
+
+Generates 10,000 customers, 2,500 restaurants, 150,000 orders, and more using Faker, then writes Parquet files to the Unity Catalog Volume.
+
+- **Widget**: `catalog_name` = `zomato_analytics`
+- **Expected output**: 5 Parquet datasets written to `/Volumes/zomato_analytics/raw/landing/`
+- **Runtime**: ~3–5 minutes
+
+> **Note**: This notebook runs `%pip install faker` in the first cell and then restarts Python. This is expected — just wait for the restart to complete, then the next cells run automatically.
+
+#### 5.3 — Bronze Ingestion (`bronze/01_bronze_ingestion`)
+
+Reads the Parquet files from the landing Volume, enforces schemas, adds audit columns (`_bronze_loaded_at`, `_source_file`, `_row_hash`), and writes Delta tables to `zomato_analytics.bronze.*`. Appends an entry to `audit.pipeline_audit_log` on completion.
+
+| Widget | Value |
+|--------|-------|
+| `catalog_name` | `zomato_analytics` |
+| `env` | `dev` |
+| `source_path` | `/Volumes/zomato_analytics/raw/landing` |
+| `load_type` | `full` |
+
+- **Expected output**: 5 Bronze Delta tables, each with row-count confirmation
+- **Runtime**: ~2–4 minutes
+
+#### 5.4 — Silver Transformation (`silver/02_silver_transformation`)
+
+Cleanses and transforms Bronze data: deduplication, null handling, type casting, referential integrity checks, and business rule enrichment. Writes to `zomato_analytics.silver.*`. Appends audit entries on completion.
+
+| Widget | Value |
+|--------|-------|
+| `catalog_name` | `zomato_analytics` |
+| `env` | `dev` |
+
+- **Expected output**: 5 Silver Delta tables with data quality pass rates ≥ 95%
+- **Runtime**: ~3–6 minutes
+
+#### 5.5 — Gold Aggregation (`gold/03_gold_aggregation`)
+
+Builds dimensions, fact tables, and all business aggregations from Silver data. Writes 8 Gold tables to `zomato_analytics.gold.*`. Appends audit entries on completion.
+
+| Widget | Value |
+|--------|-------|
+| `catalog_name` | `zomato_analytics` |
+| `env` | `dev` |
+
+- **Expected output**: 8 Gold Delta tables (2 dimensions, 1 fact, 5 aggregates)
+- **Runtime**: ~4–8 minutes
+
+#### 5.6 — Analytics Dashboard (`dashboard/04_analytics_dashboard`)
+
+Queries Gold tables and renders interactive results using Databricks' built-in `display()` visualizations. No writes — read-only.
+
+| Widget | Value |
+|--------|-------|
+| `catalog_name` | `zomato_analytics` |
+| `report_date` | *(leave blank — defaults to today)* |
+
+- **Expected output**: Charts and tables for Revenue, City KPIs, Restaurant Leaderboard, Customer Segments, Delivery SLA
+
+---
+
+### Step 6: Verify Results in the Catalog Explorer
+
+1. In the left sidebar, click **"Catalog"**
+2. Navigate to **`zomato_analytics`** → expand each schema to browse tables
+3. Click any table name to see its **schema**, **sample data**, and **table details**
+4. To view the audit log, click:
+   ```
+   zomato_analytics → audit → pipeline_audit_log → Data tab
+   ```
+
+You should see one row per table per layer for the run you just completed.
+
+---
+
+### Step 7: Query the Audit Log
+
+Open any notebook and run:
+
+```sql
+%sql
+SELECT
+    layer,
+    task_name,
+    table_name,
+    total_records,
+    status,
+    load_date,
+    run_datetime
+FROM zomato_analytics.audit.pipeline_audit_log
+ORDER BY run_datetime, layer
+```
+
+This gives you a full record of what ran, how many records were processed, and whether each step succeeded.
+
+---
+
+### Common Issues & Fixes
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| `Table not found: zomato_analytics.bronze.customers` | `00_create_tables` not run first | Run `00_create_tables` before any other notebook |
+| `TypeError: DoubleType cannot accept Decimal` | Faker returns Decimal objects | Already fixed in `01_generate_data` — ensure you're on the latest version |
+| `Volume /Volumes/zomato_analytics/raw/landing not found` | `00_create_tables` not completed | Re-run `00_create_tables` — it creates the Volume |
+| Notebook fails on `%pip install faker` | Library install triggers Python restart | This is expected — the notebook auto-continues after restart |
+| Silver pass rate < 80% shows as FAILED in audit | Data quality issue | Check the Silver notebook output for quarantined record details |
+| Cluster not found / detached | Cluster auto-terminated | Restart the cluster from **Compute** and re-attach the notebook |
+
+---
+
 ## Databricks Setup — Getting Credentials
 
 ### Step 1: Create a Databricks Free Edition Account

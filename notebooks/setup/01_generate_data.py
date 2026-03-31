@@ -446,6 +446,16 @@ print("\n" + "=" * 60)
 print("  Writing Parquet to Landing Volume")
 print("=" * 60)
 
+# Convert Decimal values to float for customers and restaurants
+for cust in customers:
+    cust['latitude'] = float(cust['latitude'])
+    cust['longitude'] = float(cust['longitude'])
+    cust['avg_order_value'] = float(cust['avg_order_value'])
+
+for rest in restaurants:
+    rest['latitude'] = float(rest['latitude'])
+    rest['longitude'] = float(rest['longitude'])
+
 total_written = 0
 total_written += write_to_landing(customers, "customers", LANDING_SCHEMAS["customers"])
 total_written += write_to_landing(restaurants, "restaurants", LANDING_SCHEMAS["restaurants"])

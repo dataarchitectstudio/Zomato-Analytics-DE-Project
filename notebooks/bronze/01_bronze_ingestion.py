@@ -344,7 +344,51 @@ print(f"   All tables created under: {FQN}.*")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 8. Verify Isolation — List Only Our Objects
+# MAGIC ## 8. Audit Log Entry
+
+# COMMAND ----------
+
+from datetime import date, datetime
+from pyspark.sql import Row
+
+# Resolve workflow name from Databricks job context (falls back to 'manual_run')
+try:
+    _ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    _workflow_name = _ctx.jobName().getOrElse("manual_run")
+except Exception:
+    _workflow_name = "manual_run"
+
+_load_date = date.today()
+_run_dt = datetime.utcnow()
+
+audit_rows = [
+    Row(
+        run_datetime=_run_dt,
+        workflow_name=_workflow_name,
+        task_name="bronze_ingestion",
+        layer="bronze",
+        table_name=s["table"],
+        total_records=int(s.get("records", 0)),
+        load_date=_load_date,
+        status=s["status"],
+        error_message=s.get("error", None),
+    )
+    for s in pipeline_status
+]
+
+(
+    spark.createDataFrame(audit_rows)
+    .write.format("delta")
+    .mode("append")
+    .saveAsTable(f"{CATALOG}.audit.pipeline_audit_log")
+)
+
+print(f"✓ Audit log: {len(audit_rows)} entries → {CATALOG}.audit.pipeline_audit_log")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9. Verify Isolation — List Only Our Objects
 
 # COMMAND ----------
 

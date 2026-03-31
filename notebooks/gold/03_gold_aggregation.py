@@ -554,7 +554,50 @@ print(f"   All tables created under: {GOLD_FQN}.*")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 14. Verify Isolation — List Only Our Objects
+# MAGIC ## 14. Audit Log Entry
+
+# COMMAND ----------
+
+from datetime import date, datetime
+from pyspark.sql import Row
+
+try:
+    _ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    _workflow_name = _ctx.jobName().getOrElse("manual_run")
+except Exception:
+    _workflow_name = "manual_run"
+
+_load_date = date.today()
+_run_dt = datetime.utcnow()
+
+audit_rows = [
+    Row(
+        run_datetime=_run_dt,
+        workflow_name=_workflow_name,
+        task_name="gold_aggregation",
+        layer="gold",
+        table_name=r["table"],
+        total_records=int(r["rows"]) if r["status"] == "SUCCESS" else 0,
+        load_date=_load_date,
+        status=r["status"],
+        error_message=r.get("error", None),
+    )
+    for r in results
+]
+
+(
+    spark.createDataFrame(audit_rows)
+    .write.format("delta")
+    .mode("append")
+    .saveAsTable(f"{CATALOG}.audit.pipeline_audit_log")
+)
+
+print(f"✓ Audit log: {len(audit_rows)} entries → {CATALOG}.audit.pipeline_audit_log")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 15. Verify Isolation — List Only Our Objects
 
 # COMMAND ----------
 

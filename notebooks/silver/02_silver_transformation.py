@@ -427,7 +427,50 @@ print(f"   All tables created under: {SILVER_FQN}.*")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 11. Verify Isolation — List Only Our Objects
+# MAGIC ## 11. Audit Log Entry
+
+# COMMAND ----------
+
+from datetime import date, datetime
+from pyspark.sql import Row
+
+try:
+    _ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    _workflow_name = _ctx.jobName().getOrElse("manual_run")
+except Exception:
+    _workflow_name = "manual_run"
+
+_load_date = date.today()
+_run_dt = datetime.utcnow()
+
+audit_rows = [
+    Row(
+        run_datetime=_run_dt,
+        workflow_name=_workflow_name,
+        task_name="silver_transformation",
+        layer="silver",
+        table_name=m["table"],
+        total_records=int(m["output_rows"]),
+        load_date=_load_date,
+        status="SUCCESS" if m["pass_rate_pct"] >= 80 else "FAILED",
+        error_message=None if m["pass_rate_pct"] >= 80 else f"Low pass rate: {m['pass_rate_pct']}%",
+    )
+    for m in all_metrics
+]
+
+(
+    spark.createDataFrame(audit_rows)
+    .write.format("delta")
+    .mode("append")
+    .saveAsTable(f"{CATALOG}.audit.pipeline_audit_log")
+)
+
+print(f"✓ Audit log: {len(audit_rows)} entries → {CATALOG}.audit.pipeline_audit_log")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 12. Verify Isolation — List Only Our Objects
 
 # COMMAND ----------
 

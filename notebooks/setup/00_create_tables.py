@@ -435,11 +435,41 @@ spark.sql(f"SHOW TABLES IN {CATALOG}.gold").show(truncate=False)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Summary
+# MAGIC ## 6. Audit Schema & Table
 
 # COMMAND ----------
 
-for schema in ["bronze", "silver", "gold"]:
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.audit")
+spark.sql(f"COMMENT ON SCHEMA {CATALOG}.audit IS 'Pipeline audit logs — records every layer execution with record counts and status'")
+
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {CATALOG}.audit.pipeline_audit_log (
+    run_datetime    TIMESTAMP   COMMENT 'UTC timestamp when the layer notebook ran',
+    workflow_name   STRING      COMMENT 'Databricks workflow/job name, or manual_run',
+    task_name       STRING      COMMENT 'Workflow task key or notebook name',
+    layer           STRING      COMMENT 'Medallion layer: bronze | silver | gold | validation',
+    table_name      STRING      COMMENT 'Target table name',
+    total_records   BIGINT      COMMENT 'Number of records written/processed',
+    load_date       DATE        COMMENT 'Calendar date of the pipeline run (UTC)',
+    status          STRING      COMMENT 'SUCCESS | FAILED',
+    error_message   STRING      COMMENT 'Error detail when status = FAILED, NULL otherwise'
+)
+USING DELTA
+COMMENT 'Append-only audit log for every layer execution in the medallion pipeline'
+TBLPROPERTIES ('delta.appendOnly' = 'true')
+""")
+
+print(f"✓ Audit schema '{CATALOG}.audit' ready")
+print(f"✓ Table '{CATALOG}.audit.pipeline_audit_log' ready")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Summary
+
+# COMMAND ----------
+
+for schema in ["bronze", "silver", "gold", "audit"]:
     count = spark.sql(f"SHOW TABLES IN {CATALOG}.{schema}").count()
     print(f"  {CATALOG}.{schema}: {count} tables")
 

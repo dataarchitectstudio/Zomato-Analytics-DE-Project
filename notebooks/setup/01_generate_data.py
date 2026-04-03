@@ -359,7 +359,8 @@ LANDING_SCHEMAS = {
         StructField("email", StringType()), StructField("phone", StringType()),
         StructField("city", StringType()), StructField("locality", StringType()),
         StructField("pincode", StringType()),
-        StructField("latitude", DoubleType()), StructField("longitude", DoubleType()),
+        StructField("latitude", DoubleType()), 
+        StructField("longitude", DoubleType()),
         StructField("signup_date", StringType()),
         StructField("subscription_tier", StringType()),
         StructField("is_active", BooleanType()),
@@ -442,9 +443,33 @@ LANDING_SCHEMAS = {
 
 # COMMAND ----------
 
-print("\n" + "=" * 60)
+# DBTITLE 1,Cell 21
+print("\n" + "="*60)
 print("  Writing Parquet to Landing Volume")
-print("=" * 60)
+print("="*60)
+
+# Convert all numeric types to native Python types to avoid Arrow conversion issues
+for customer in customers:
+    customer["latitude"] = float(customer["latitude"])
+    customer["longitude"] = float(customer["longitude"])
+    customer["avg_order_value"] = float(customer["avg_order_value"])
+
+for restaurant in restaurants:
+    restaurant["latitude"] = float(restaurant["latitude"])
+    restaurant["longitude"] = float(restaurant["longitude"])
+    restaurant["avg_cost_for_two"] = int(restaurant["avg_cost_for_two"])
+    restaurant["rating"] = float(restaurant["rating"])
+
+for order in orders:
+    order["subtotal"] = float(order["subtotal"])
+    order["discount_pct"] = float(order["discount_pct"])
+    order["discount_amount"] = float(order["discount_amount"])
+    order["delivery_fee"] = float(order["delivery_fee"])
+    order["tax_amount"] = float(order["tax_amount"])
+    order["total_amount"] = float(order["total_amount"])
+
+for delivery in deliveries:
+    delivery["delivery_distance_km"] = float(delivery["delivery_distance_km"])
 
 total_written = 0
 total_written += write_to_landing(customers, "customers", LANDING_SCHEMAS["customers"])

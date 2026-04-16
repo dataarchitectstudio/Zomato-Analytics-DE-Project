@@ -70,7 +70,12 @@ jobs:
                   nb = nbformat.read(f, as_version=4)
               for i, cell in enumerate(nb.cells):
                   if cell.cell_type == 'code':
-                      compile(cell.source, '$notebook:cell-' + str(i), 'exec')
+                      clean = '\n'.join(
+                          l for l in cell.source.splitlines()
+                          if not l.strip().startswith('%') and not l.strip().startswith('!')
+                      )
+                      if clean.strip():
+                          compile(clean, '$notebook:cell-' + str(i), 'exec')
               print('  ✓ OK')
           except (json.JSONDecodeError, nbformat.ValidationError) as e:
               print(f'  ✗ Format error: {e}')

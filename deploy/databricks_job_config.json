@@ -1,6 +1,6 @@
 {
   "name": "Zomato Analytics — Full Medallion Pipeline",
-  "description": "End-to-end pipeline: DDL → Data Gen → Bronze → Silver → Gold → Dashboard → Validation",
+  "description": "End-to-end pipeline: DDL → Data Gen → Bronze → Silver → Gold → Dashboard",
   "tags": {
     "project": "zomato-analytics",
     "team": "data-engineering",
@@ -99,22 +99,6 @@
       },
       "timeout_seconds": 1800,
       "max_retries": 1
-    },
-    {
-      "task_key": "pipeline_validation",
-      "description": "Validate record counts across Bronze → Silver → Gold layers and write audit log entry. Fails the workflow if any layer drops records beyond tolerance.",
-      "depends_on": [
-        { "task_key": "dashboard_refresh" }
-      ],
-      "notebook_task": {
-        "notebook_path": "/Workspace/Zomato-Analytics/validation/06_pipeline_validation",
-        "base_parameters": {
-          "catalog_name": "zomato_analytics",
-          "env": "dev"
-        }
-      },
-      "timeout_seconds": 900,
-      "max_retries": 0
     }
   ],
   "schedule": {

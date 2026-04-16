@@ -147,6 +147,7 @@ jobs:
           echo "    ${{ env.WORKSPACE_PATH }}/gold/03_gold_aggregation"
           echo "    ${{ env.WORKSPACE_PATH }}/dashboard/04_analytics_dashboard"
           echo "    ${{ env.WORKSPACE_PATH }}/orchestration/05_run_pipeline"
+          echo "    ${{ env.WORKSPACE_PATH }}/validation/06_pipeline_validation"
           echo ""
           echo "  Databricks Job: Created/Updated"
           echo "=============================================="

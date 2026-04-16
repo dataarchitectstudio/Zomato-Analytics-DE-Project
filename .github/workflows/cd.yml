@@ -1,8 +1,9 @@
 ###############################################################################
 # Zomato Analytics — CD Pipeline
 # Triggers ONLY when a PR is merged into main.
-# Deploys notebooks to Databricks workspace using REST API.
-# Includes post-deployment smoke test and auto-revert on failure.
+# Deploys .ipynb notebooks to Databricks workspace using REST API.
+# Includes pre-deploy validation, post-deployment smoke test, and
+# auto-revert on failure.
 ###############################################################################
 
 name: CD — Deploy to Databricks
@@ -54,7 +55,41 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests nbformat
+
+      - name: Validate .ipynb notebooks before deploy
+        run: |
+          echo "=== Pre-deploy: Validating .ipynb notebooks ==="
+          FAILED=0
+          for notebook in $(find notebooks -name "*.ipynb" -type f); do
+            echo "Checking: $notebook"
+            python3 -c "
+          import json, sys, nbformat
+          try:
+              with open('$notebook', 'r') as f:
+                  nb = nbformat.read(f, as_version=4)
+              for i, cell in enumerate(nb.cells):
+                  if cell.cell_type == 'code':
+                      clean = '\n'.join(
+                          l for l in cell.source.splitlines()
+                          if not l.strip().startswith('%') and not l.strip().startswith('!')
+                      )
+                      if clean.strip():
+                          compile(clean, '$notebook:cell-' + str(i), 'exec')
+              print('  ✓ OK')
+          except (json.JSONDecodeError, nbformat.ValidationError) as e:
+              print(f'  ✗ Format error: {e}')
+              sys.exit(1)
+          except SyntaxError as e:
+              print(f'  ✗ Syntax error in cell: {e}')
+              sys.exit(1)
+          " || FAILED=1
+          done
+          if [ $FAILED -eq 1 ]; then
+            echo "✗ Pre-deploy validation failed — aborting deployment"
+            exit 1
+          fi
+          echo "✓ All notebooks valid — proceeding with deployment"
 
       - name: Deploy notebooks to Databricks
         id: deploy

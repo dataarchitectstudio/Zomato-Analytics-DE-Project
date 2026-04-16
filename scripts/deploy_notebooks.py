@@ -19,13 +19,13 @@ import requests
 
 # Notebooks to deploy: (local_path, remote_name)
 NOTEBOOKS = [
-    ("notebooks/setup/00_create_tables.py", "setup/00_create_tables"),
-    ("notebooks/setup/01_generate_data.py", "setup/01_generate_data"),
-    ("notebooks/bronze/01_bronze_ingestion.py", "bronze/01_bronze_ingestion"),
-    ("notebooks/silver/02_silver_transformation.py", "silver/02_silver_transformation"),
-    ("notebooks/gold/03_gold_aggregation.py", "gold/03_gold_aggregation"),
-    ("notebooks/dashboard/04_analytics_dashboard.py", "dashboard/04_analytics_dashboard"),
-    ("notebooks/orchestration/05_run_pipeline.py", "orchestration/05_run_pipeline"),
+    ("notebooks/setup/00_create_tables.ipynb", "setup/00_create_tables"),
+    ("notebooks/setup/01_generate_data.ipynb", "setup/01_generate_data"),
+    ("notebooks/bronze/01_bronze_ingestion.ipynb", "bronze/01_bronze_ingestion"),
+    ("notebooks/silver/02_silver_transformation.ipynb", "silver/02_silver_transformation"),
+    ("notebooks/gold/03_gold_aggregation.ipynb", "gold/03_gold_aggregation"),
+    ("notebooks/dashboard/04_analytics_dashboard.ipynb", "dashboard/04_analytics_dashboard"),
+    ("notebooks/orchestration/05_run_pipeline.ipynb", "orchestration/05_run_pipeline"),
 ]
 
 
@@ -74,10 +74,9 @@ def deploy_notebook(host: str, token: str, local_path: str, remote_path: str) ->
 
     payload = {
         "path": remote_path,
-        "language": "PYTHON",
         "overwrite": True,
         "content": content_b64,
-        "format": "SOURCE",
+        "format": "JUPYTER",
     }
 
     result = _api_request(host, token, "POST", "/workspace/import", payload)

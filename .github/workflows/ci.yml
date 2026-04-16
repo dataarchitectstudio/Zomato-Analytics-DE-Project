@@ -84,23 +84,29 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install nbformat
+        run: pip install nbformat
+
       - name: Validate notebook syntax
         run: |
           echo "=== Validating notebook files ==="
           FAILED=0
-          for notebook in $(find notebooks -name "*.py" -type f); do
+          for notebook in $(find notebooks -name "*.ipynb" -type f); do
             echo "Checking: $notebook"
             python3 -c "
-          import ast, sys
+          import json, sys, nbformat
           try:
               with open('$notebook', 'r') as f:
-                  lines = f.readlines()
-              clean_lines = [l for l in lines if not l.strip().startswith('# MAGIC') and not l.strip().startswith('# COMMAND')]
-              code = ''.join(clean_lines)
-              ast.parse(code)
+                  nb = nbformat.read(f, as_version=4)
+              for i, cell in enumerate(nb.cells):
+                  if cell.cell_type == 'code':
+                      compile(cell.source, '$notebook:cell-' + str(i), 'exec')
               print('  ✓ Syntax OK')
+          except (json.JSONDecodeError, nbformat.ValidationError) as e:
+              print(f'  ✗ Notebook format error: {e}')
+              sys.exit(1)
           except SyntaxError as e:
-              print(f'  ✗ Syntax error: {e}')
+              print(f'  ✗ Syntax error in cell: {e}')
               sys.exit(1)
           " || FAILED=1
           done
@@ -113,7 +119,11 @@ jobs:
       - name: Scan for hardcoded secrets
         run: |
           echo "=== Scanning for hardcoded secrets ==="
-          if grep -rn --include="*.py" -E "(password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]" notebooks/ data_generator/ config/; then
+          if grep -rn --include="*.ipynb" -E "(password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]" notebooks/; then
+            echo "✗ Potential hardcoded secrets found!"
+            exit 1
+          fi
+          if grep -rn --include="*.py" -E "(password|secret|api_key|token)\s*=\s*['\"][^'\"]+['\"]" data_generator/ config/ 2>/dev/null; then
             echo "✗ Potential hardcoded secrets found!"
             exit 1
           fi

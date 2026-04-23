@@ -1,5 +1,6 @@
 # Zomato Analytics — Data Engineering Project
 
+![Zomato Analytics Dashboard](Zomato%20Analytics%20Dashboard.png)
 
 Enterprise-grade data engineering pipeline for Zomato restaurant analytics, built on the **Medallion Architecture** (Bronze → Silver → Gold) with **Unity Catalog** isolation and automated CI/CD deployment to **Databricks Free Edition**.
 

@@ -54,10 +54,27 @@
       "min_retry_interval_millis": 60000
     },
     {
+      "task_key": "dq_checks",
+      "description": "Run rule-based data quality checks on Bronze tables — split records into validated and quarantine Delta tables; block pipeline if pass rate < 90%",
+      "depends_on": [
+        { "task_key": "bronze_ingestion" }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Zomato-Analytics/quality/07_dq_checks",
+        "base_parameters": {
+          "catalog_name": "zomato_analytics",
+          "env": "dev",
+          "dq_threshold_pct": "90.0"
+        }
+      },
+      "timeout_seconds": 1800,
+      "max_retries": 0
+    },
+    {
       "task_key": "silver_transformation",
       "description": "Cleanse, deduplicate, and transform Bronze data into Silver layer",
       "depends_on": [
-        { "task_key": "bronze_ingestion" }
+        { "task_key": "dq_checks" }
       ],
       "notebook_task": {
         "notebook_path": "/Workspace/Zomato-Analytics/silver/02_silver_transformation",

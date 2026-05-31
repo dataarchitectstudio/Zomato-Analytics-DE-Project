@@ -4,7 +4,8 @@
 
 Enterprise-grade data engineering pipeline for Zomato restaurant analytics, built on the **Medallion Architecture** (Bronze → Silver → Gold) with **Unity Catalog** isolation and automated CI/CD deployment to **Databricks Free Edition**.
 
----
+
+----
 
 ## Architecture Overview
 

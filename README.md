@@ -25,12 +25,12 @@ Enterprise-grade data engineering pipeline for Zomato restaurant analytics, buil
                                                                                     └──────────────┘
 ```
 
-### Unity Catalog Namespace
+### Unity Catalog Namespaces
 
 All objects live under a **dedicated catalog** — zero impact on existing workspace objects:
 
 ```
-zomato_analytics                    ← dedicated catalog
+Zomato_analytics                    ← dedicated catalog
   ├── raw.landing (Volume)          ← Parquet files from data generator
   ├── bronze.*                      ← raw ingested data
   ├── silver.*                      ← cleansed & conformed

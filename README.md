@@ -30,7 +30,7 @@ Enterprise-grade data engineering pipeline for Zomato restaurant analytics, buil
 All objects live under a **dedicated catalog** — zero impact on existing workspace objects:
 
 ```
-Zomato_analytics                    ← dedicated catalog
+Zomato_Analytics                    ← dedicated catalog
   ├── raw.landing (Volume)          ← Parquet files from data generator
   ├── bronze.*                      ← raw ingested data
   ├── silver.*                      ← cleansed & conformed

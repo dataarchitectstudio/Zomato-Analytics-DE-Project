@@ -26,6 +26,7 @@ NOTEBOOKS = [
     ("notebooks/gold/03_gold_aggregation.ipynb", "gold/03_gold_aggregation"),
     ("notebooks/dashboard/04_analytics_dashboard.ipynb", "dashboard/04_analytics_dashboard"),
     ("notebooks/orchestration/05_run_pipeline.ipynb", "orchestration/05_run_pipeline"),
+    ("notebooks/quality/07_dq_checks.ipynb", "quality/07_dq_checks"),
 ]
 
 

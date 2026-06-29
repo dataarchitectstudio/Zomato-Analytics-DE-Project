@@ -1,524 +1,1516 @@
- 
+# Azure Databricks with Unity Catalog — Complete Setup Guide
 
+> **Goal:** By the end of this guide you will have a fully configured Azure Databricks workspace with Unity Catalog enabled, external storage credentials wired up, and Delta tables created inside a managed catalog.
 
+---
 
+## Table of Contents
 
+0. [Unity Catalog Setup Methods — At a Glance](#0-unity-catalog-setup-methods--at-a-glance)
+1. [Architecture Overview](#1-architecture-overview)
+2. [Prerequisites](#2-prerequisites)
+3. [Step 1 — Create an ADLS Gen2 Storage Account](#3-step-1--create-an-adls-gen2-storage-account)
+4. [Step 2 — Create the Unity Catalog Root Container](#4-step-2--create-the-unity-catalog-root-container)
+5. [Step 3 — Create an Azure Databricks Workspace (Premium)](#5-step-3--create-an-azure-databricks-workspace-premium)
+6. [Step 4 — Create an Access Connector for Azure Databricks](#6-step-4--create-an-access-connector-for-azure-databricks)
+7. [Step 5 — Assign Storage Permissions to the Access Connector](#7-step-5--assign-storage-permissions-to-the-access-connector)
+8. [Step 6 — Create & Configure the Unity Catalog Metastore](#8-step-6--create--configure-the-unity-catalog-metastore)
+9. [Step 7 — Assign the Metastore to the Workspace](#9-step-7--assign-the-metastore-to-the-workspace)
+10. [Step 8 — Create External Location & Storage Credential](#10-step-8--create-external-location--storage-credential)
+11. [Step 9 — Create Catalog, Schema (Database), and Delta Tables](#11-step-9--create-catalog-schema-database-and-delta-tables)
+    - Step 9a — Create Catalog (with / without Managed Location, ALTER)
+    - Step 9b — Create Schemas (with / without Managed Location, ALTER)
+    - Step 9c — Create Managed Delta Tables (storage resolution waterfall)
+    - [Managed vs External Tables — Complete Guide](#11b-managed-vs-external-tables--complete-guide)
+12. [Step 10 — Cluster Configuration for Unity Catalog](#12-step-10--cluster-configuration-for-unity-catalog)
+13. [Step 11 — Verify Delta Tables in Unity Catalog](#13-step-11--verify-delta-tables-in-unity-catalog)
+14. [Governance — Grants & Privileges Reference](#14-governance--grants--privileges-reference)
+15. [Common Errors & Fixes](#15-common-errors--fixes)
 
+---
 
-<!DOCTYPE html>
-<html
-  lang="en"
-    class="html-auth"
-  
-  data-color-mode="auto" data-light-theme="light" data-dark-theme="dark"
-  data-a11y-animated-images="system" data-a11y-link-underlines="true"
-  
-  >
+## 0. Unity Catalog Setup Methods — At a Glance
 
-    <style>
-:root {
-  --fontStack-monospace: "Monaspace Neon", ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace !important;
-}
-</style>
+Azure Databricks supports two distinct ways to get Unity Catalog working. Understanding the difference upfront determines how much control you have over your data, storage costs, and cross-tool accessibility.
 
+---
 
+### Method 1 — Default (Auto-Enabled) Unity Catalog
 
+When you create a **new Premium Databricks workspace** today, Unity Catalog is automatically enabled:
 
-  <head>
-    <meta charset="utf-8">
-  <link rel="dns-prefetch" href="https://github.githubassets.com">
-  <link rel="dns-prefetch" href="https://avatars.githubusercontent.com">
-  <link rel="dns-prefetch" href="https://github-cloud.s3.amazonaws.com">
-  <link rel="dns-prefetch" href="https://user-images.githubusercontent.com/">
-  <link rel="preconnect" href="https://github.githubassets.com" crossorigin>
-  <link rel="preconnect" href="https://avatars.githubusercontent.com">
+- Databricks creates a **regional metastore** in the Databricks Account for your region
+- The metastore root storage is **Databricks-owned cloud infrastructure** — it does NOT appear in your Azure subscription
+- The `main` catalog is auto-created and linked to the workspace
+- You get governance (catalog/schema/table hierarchy, RBAC, lineage) immediately — **but Databricks controls the underlying storage for managed tables**
 
-  
+**To create external tables later**, you still need to manually add an Access Connector + External Locations (Steps 4–8 of this guide).
 
-  <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/light-4fded0090af0ad58.css" /><link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/dark-06381ff23d863842.css" /><link data-color-theme="light_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/light_high_contrast-cf8e26bc17e62ebc.css" /><link data-color-theme="light_colorblind" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/light_colorblind-3a437477a570cc40.css" /><link data-color-theme="light_colorblind_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/light_colorblind_high_contrast-39b6c209db5491c9.css" /><link data-color-theme="light_tritanopia" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/light_tritanopia-3822234d6c03b00b.css" /><link data-color-theme="light_tritanopia_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/light_tritanopia_high_contrast-33857254a8064bf7.css" /><link data-color-theme="dark_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_high_contrast-9023e6605402defb.css" /><link data-color-theme="dark_colorblind" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_colorblind-37023bf69d8e0e34.css" /><link data-color-theme="dark_colorblind_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_colorblind_high_contrast-486bd43e01a2c0ec.css" /><link data-color-theme="dark_tritanopia" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_tritanopia-838ba2a5070c5b09.css" /><link data-color-theme="dark_tritanopia_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_tritanopia_high_contrast-2aa7245dc545d61f.css" /><link data-color-theme="dark_dimmed" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_dimmed-29ef2eb185e7de1c.css" /><link data-color-theme="dark_dimmed_high_contrast" crossorigin="anonymous" media="all" rel="stylesheet" data-href="https://github.githubassets.com/assets/dark_dimmed_high_contrast-8eed6b212f10f1b9.css" />
-
-  <style type="text/css">
-    :root {
-      --tab-size-preference: 4;
-    }
-
-    pre, code {
-      tab-size: var(--tab-size-preference);
-    }
-  </style>
-
-    <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/primer-primitives-b39ad27f3538ace3.css" />
-    <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/primer-tailwind-compatible-922f4e76aead6d80.css" />
-    <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/global-d18f184ea1a06a2c.css" />
-    <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/github-eab9c5888b163e42.css" />
-    <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/tailwind-ee832f465450400b.css" />
-  
-
-  
-
-  <script type="application/json" id="client-env">{"locale":"en","featureFlags":["actions_custom_images_storage_billing_ui_visibility","actions_enable_background_steps","actions_image_version_event","actions_workflow_language_service_allow_case_function","actions_workflow_language_service_allow_concurrency_queue","agent_author_search_expansion","agent_author_search_expansion_ui_pulls","agent_conflict_resolution","alternate_user_config_repo","artifact_ui_v2","billing_billable_licenses_cost_center_bucket_fix","billing_discount_threshold_notification","billing_ui_budget_pagination_enabled","billing_user_level_budgets","billing_user_level_budgets_manage","ccr_implement_suggestion_refresh","code_scanning_dfa_degraded_experience_notice","code_view_checks_live_updates","code_view_raf_sticky_lines","codemirror_inp_optimizations","codespaces_prebuild_region_target_update","codeview_sidebar_combined_payload","coding_agent_model_selection","coding_agent_model_selection_all_skus","coding_agent_third_party_model_ui","comment_viewer_copy_raw_markdown","contentful_primer_code_blocks","copilot_agent_snippy","copilot_api_agentic_issue_marshal_yaml","copilot_ask_mode_dropdown","copilot_automation_suggest_tools_enabled","copilot_automations_suggested_automations","copilot_chat_attach_multiple_images","copilot_chat_auto_mode_picker_paid","copilot_chat_category_rate_limit_messages","copilot_chat_clear_model_selection_for_default_change","copilot_chat_contextual_suggestions_updated","copilot_chat_disable_model_picker_while_streaming","copilot_chat_docked_panel","copilot_chat_enable_tool_call_logs","copilot_chat_increase_token_padding","copilot_chat_input_commands","copilot_chat_interspersed_tool_calls","copilot_chat_max_upsell","copilot_chat_model_picker_info_popover","copilot_chat_models_browser_cache","copilot_chat_opening_thread_switch","copilot_chat_prettify_pasted_code","copilot_chat_reduce_quota_checks","copilot_chat_vision_in_claude","copilot_chat_vision_preview_gate","copilot_cli_install_cta_max_plan","copilot_cloud_agent_always_categorize_models_in_model_picker","copilot_custom_copilots","copilot_custom_copilots_feature_preview","copilot_diff_explain_conversation_intent","copilot_diff_reference_context","copilot_duplicate_thread","copilot_extensions_removal_on_marketplace","copilot_file_block_ref_matching","copilot_fix_blank_side_panel","copilot_fix_failed_workflows","copilot_fix_failed_workflows_all_skus","copilot_ftp_hyperspace_upgrade_prompt","copilot_hide_hovercard","copilot_immersive_code_block_transition_wrap","copilot_immersive_embedded_deferred_payload","copilot_immersive_embedded_draggable","copilot_immersive_embedded_header_button","copilot_immersive_embedded_implicit_references","copilot_immersive_embedded_skip_copilot_api_token_for_dotcom_context","copilot_immersive_file_block_transition_open","copilot_immersive_file_preview_keep_mounted","copilot_immersive_hide_column_right_without_thread","copilot_immersive_job_result_preview","copilot_immersive_suggestion_pills","copilot_immersive_task_hyperlinking","copilot_immersive_task_within_chat_thread","copilot_issue_list_show_more","copilot_mc_cli_resume_any_users_task","copilot_mc_nudges","copilot_mission_control_agent_filtering","copilot_mission_control_always_send_integration_id","copilot_mission_control_environment_list_icons","copilot_mission_control_initial_data_spinner","copilot_mission_control_needs_attention","copilot_mission_control_sandbox_remote_bypass","copilot_mission_control_session_filters","copilot_mission_control_task_alive_updates","copilot_mission_control_task_sharing","copilot_org_policy_page_focus_mode","copilot_plans_signups_enabled","copilot_pr_chat_enhancements","copilot_premium_request_quotas","copilot_quota_banner_pr_files_changed","copilot_redirect_header_button_to_agents","copilot_resource_panel","copilot_share_active_subthread","copilot_spaces_ga","copilot_spaces_individual_policies_ga","copilot_spark_empty_state","copilot_spark_handle_nil_friendly_name","copilot_swe_agent_authorization_status_ui","copilot_swe_agent_hide_model_picker_if_only_auto","copilot_swe_agent_pr_comment_model_picker","copilot_swe_agent_pull_request_merged_trigger","copilot_swe_agent_pull_request_opened_trigger","copilot_swe_agent_pull_request_synchronize_trigger","copilot_swe_agent_use_subagents","copilot_task_api_github_rest_style","copilot_token_based_billing","copilot_unconfigured_is_inherited","copilot_user_can_upgrade_plan_field","copilot_workbench_ubb","custom_properties_core_reusable_property_value_field","dashboard_indexeddb_caching","dashboard_lists_max_age_filter","dashboard_surface_needs_action_ci_running","dashboard_universe_2025","dashboard_universe_2025_feedback_dialog","fgpat_permissions_selector_redesign","flex_cta_groups_mvp","flex_suite_overview","ga_enterprise_teams_ui","github_models_scheduled_hydro_events","global_nav_react","global_nav_repo_picker_experiment","global_nav_responsive_create_menu","hide_groups_list_for_few_groups","hyperspace_2025_logged_out_batch_1","hyperspace_2025_logged_out_batch_2","hyperspace_2025_logged_out_batch_3","in_product_messaging_datadog_monitoring","ipm_budget_deep_linking","ipm_global_transactional_message_agents","ipm_global_transactional_message_copilot","ipm_global_transactional_message_issues","ipm_global_transactional_message_prs","ipm_global_transactional_message_repos","ipm_global_transactional_message_spaces","issue_cca_modal_open","issue_cca_multi_assign_modal","issue_cca_visualization","issue_fields_global_search","issue_inline_avatars","issue_pinned_views","issue_pinned_views_index_page","issue_pinned_views_preheat_sidebar_links","issue_pinned_views_projects_react","issues_expanded_file_types","issues_lazy_load_comment_box_suggestions","issues_react_chrome_container_query_fix","issues_react_include_bots_in_pickers","issues_react_ui_feedback","issues_search_type_gql","landing_pages_ninetailed","landing_pages_web_vitals_tracking","lifecycle_label_name_updates","low_quality_classifier","marketing_pages_search_explore_provider","memex_default_issue_create_repository","memex_live_update_hovercard","memex_mwl_filter_field_delimiter","memex_remove_deprecated_type_issue","memex_roadmap_drag_style","merge_status_header_feedback","new_quick_search_dotcom","oauth_authorize_clickjacking_protection","octocaptcha_origin_optimization","pr_sfv_new_diff_fetch","primer_react_css_anchor_positioning","prs_css_anchor_positioning","prs_live_updates_issue_comments","prs_load_all_alerts","prx_files","pull_request_commit_checks_dialog","pull_request_files_virtualization","pull_request_inbox_customize_sections","pull_request_inbox_section_query_popover","pull_request_overview_panel_edit_description","pull_request_virtualization_image_estimate","pull_request_virtualization_scroll_compensation","react_blob_isolate_code_lines","react_blob_overlay","react_data_router_tanstack_allowed","react_sandbox_future_tanstack","repos_contributors_limited_default_range","repository_suggester_elastic_search","rules_insights_filter_bar_created","rules_required_reviewers_block_description","sample_network_conn_type","secret_scanning_pattern_alerts_link","security_center_artifact_filters_popover","semantic_similarity_duplicate_issue_detection","session_logs_ungroup_reasoning_text","site_banner_desktop_copilot_app","site_github_app_ga_page","site_global_nav_spark_models_removed","spark_prompt_secret_scanning","spark_server_connection_status","suppress_automated_browser_vitals","team_review_requested_by_user_filter","track_notifications_settings_usage","viewscreen_sandbox","warn_inaccessible_attachments","webp_support","workbench_store_readonly"],"login":"dataarchitectstudio","copilotApiOverrideUrl":"https://api.individual.githubcopilot.com","cmcApiUrl":"https://api.github.com/cmc_internal/api"}</script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/wp-runtime-78603c397a1278d2.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/fetch-utilities-9ee17519ce9e3c2d.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/78205-3a6ea5cfe3fb27f2.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/85924-f1da419719ff9817.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/34646-9d0d3ae369dd4dc9.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/environment-84f18c48c0047c1d.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/runtime-helpers-1dea47d70a855c49.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/296-a6802cc4838f56c7.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/57131-5bc8eba5c8fc646b.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/816-774d14a8cd9b309c.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/78121-8c675aec907e252b.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/81683-7fb5e5fde80fac9b.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/64458-8ba18065e4acf029.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/46740-2ad47934ee602ae7.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/3650-41e3fc7815ffc15d.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/17127-47b029096dee9f22.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/github-elements-5413485ca5039d35.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/element-registry-81a198a4c3f18939.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/react-core-67045ddac269095d.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/react-lib-84a0f3ff745a6c51.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/63143-9834767acbea50f3.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/79039-2fc69f86776b329f.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/88475-2de66b4993b12d53.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/2887-998ebe08466c5cd8.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/62220-11f941b1ef36431f.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/26533-dfc05901dc9c505a.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/7088-faef35bf48a4c14e.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/9506-3350a51b4d29960b.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/53320-ac0ee971f6e49e14.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/46287-849123d74be1c4ab.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/23548-e69f9fb0ce108c7f.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/89627-e7cc14e3031fcff3.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/55682-153e8edc1a4a674f.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/49029-53e381d07bbb850b.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/99328-21bae9bdede70934.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/behaviors-2d95e052f3ff8f8e.js" defer="defer"></script>
-<link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/react-core.4c66c13a9c8d5211.module.css" />
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/61272-70a9b1d064908221.js" defer="defer"></script>
-<script crossorigin="anonymous" type="module" src="https://github.githubassets.com/assets/notifications-global-6ad97c0f0c98db4a.js" defer="defer"></script>
-  
-
-  <title>Enable two-factor authentication</title>
-
-
-
-  <meta name="route-pattern" content="/:user_id/:repository/raw/*name(/*path)" data-turbo-transient>
-  <meta name="route-controller" content="blob" data-turbo-transient>
-  <meta name="route-action" content="raw" data-turbo-transient>
-  <meta name="fetch-nonce" content="v2:d79aacce-c939-3df5-5622-95546e93d5a9">
-
-    
-  <meta name="current-catalog-service-hash" content="f3abb0cc802f3d7b95fc8762b94bdcb13bf39634c40c357301c4aa1d67a256fb">
-
-
-  <meta name="request-id" content="625B:3BA277:ED862:FCAEA:6A426E20" data-turbo-transient="true" /><meta name="html-safe-nonce" content="cbe8b607befedc21baf235ce52a81d4d88de03b9b8c0e3bbc3e11914dcb1ecc5" data-turbo-transient="true" /><meta name="visitor-payload" content="eyJyZWZlcnJlciI6Imh0dHBzOi8vZ2l0aHViLmNvbS92ZW5rYXQyMDI2dHJhaW5pbmctZGVzaWduL0F6dXJlRGF0YUVuZ2luZWVyaW5nL2Jsb2IvbWFpbi9BREItRG9jcy9BenVyZS1EYXRhYnJpY2tzLVVuaXR5LUNhdGFsb2ctU2V0dXAtR2l0SHViLm1kIiwicmVxdWVzdF9pZCI6IjYyNUI6M0JBMjc3OkVEODYyOkZDQUVBOjZBNDI2RTIwIiwidmlzaXRvcl9pZCI6IjY3MzYzNzYyMzI2MjQ0OTY1OCIsInJlZ2lvbl9lZGdlIjoiY2VudHJhbGluZGlhIiwicmVnaW9uX3JlbmRlciI6ImlhZCJ9" data-turbo-transient="true" /><meta name="visitor-hmac" content="0549e4a11aebaace430d737283b70fc82890f89a17fc62ec4dd55b032b8e771b" data-turbo-transient="true" />
-
-
-
-
-  <meta name="github-keyboard-shortcuts" content="repository,copilot" data-turbo-transient="true" />
-  
-
-  <meta name="selected-link" value="/venkat2026training-design/AzureDataEngineering/raw/refs/heads/main/ADB-Docs/Azure-Databricks-Unity-Catalog-Setup-GitHub.md" data-turbo-transient>
-  <link rel="assets" href="https://github.githubassets.com/">
-
-    <meta name="google-site-verification" content="Apib7-x98H0j5cPqHWwSMm6dNU4GmODRoqxLiDzdx9I">
-
-<meta name="octolytics-url" content="https://collector.github.com/github/collect" /><meta name="octolytics-actor-id" content="213015921" /><meta name="octolytics-actor-login" content="dataarchitectstudio" /><meta name="octolytics-actor-hash" content="fb63ee250d79e012dd2dec57b9a804aba795f24c3c4b65584c93ca28a2ae8373" />
-
-
-
-
-
-  <meta name="analytics-location" content="/&lt;user-name&gt;/&lt;repo-name&gt;/blob/raw" data-turbo-transient="true" />
-
-  
-
-
-
-
-    <meta name="user-login" content="dataarchitectstudio">
-
-  <link rel="sudo-modal" href="/sessions/sudo_modal">
-
-    <meta name="viewport" content="width=device-width">
-
-    
-
-      <meta name="description" content="GitHub is where people build software. More than 150 million people use GitHub to discover, fork, and contribute to over 420 million projects.">
-
-      <link rel="search" type="application/opensearchdescription+xml" href="/opensearch.xml" title="GitHub">
-
-    <link rel="fluid-icon" href="https://github.com/fluidicon.png" title="GitHub">
-    <meta property="fb:app_id" content="1401488693436528">
-    <meta name="apple-itunes-app" content="app-id=1477376905, app-argument=https://github.com/venkat2026training-design/AzureDataEngineering/raw/refs/heads/main/ADB-Docs/Azure-Databricks-Unity-Catalog-Setup-GitHub.md" />
-
-      <meta property="og:url" content="https://github.com">
-  <meta property="og:site_name" content="GitHub">
-  <meta property="og:title" content="Build software better, together">
-  <meta property="og:description" content="GitHub is where people build software. More than 150 million people use GitHub to discover, fork, and contribute to over 420 million projects.">
-  <meta property="og:image" content="https://github.githubassets.com/assets/github-logo-55c5b9a1fe52.png">
-  <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="1200">
-  <meta property="og:image" content="https://github.githubassets.com/assets/github-mark-57519b92ca4e.png">
-  <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="620">
-  <meta property="og:image" content="https://github.githubassets.com/assets/github-octocat-13c86b8b336d.png">
-  <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="620">
-
-  <meta property="twitter:site" content="github">
-  <meta property="twitter:site:id" content="13334762">
-  <meta property="twitter:creator" content="github">
-  <meta property="twitter:creator:id" content="13334762">
-  <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:title" content="GitHub">
-  <meta property="twitter:description" content="GitHub is where people build software. More than 150 million people use GitHub to discover, fork, and contribute to over 420 million projects.">
-  <meta property="twitter:image" content="https://github.githubassets.com/assets/github-logo-55c5b9a1fe52.png">
-  <meta property="twitter:image:width" content="1200">
-  <meta property="twitter:image:height" content="1200">
-
-
-      <link rel="shared-web-socket" href="wss://alive.github.com/_sockets/u/213015921/ws?session=eyJ2IjoiVjMiLCJ1IjoyMTMwMTU5MjEsInMiOjIwNjI5ODUxMzQsImMiOjI1OTY3NjYwMzQsInQiOjE3ODI3Mzg0Nzd9--aacb7b30cd091132b2a7fbedfef73985373707d2235d386bb361588ca68caf1b" data-refresh-url="/_alive" data-session-id="36f8d7c1ec3332a791131e133173ba3edc94798d5b71fc2ebfdd9b66cd4cf0cd">
-      <link rel="shared-web-socket-src" href="/assets-cdn/worker/socket-worker-310827049a9185cc.js">
-
-      <link rel="service-worker-src" href="/assets-cdn/worker/service-worker-c24bdf59787a5284.js?current_user=dataarchitectstudio&amp;errors_url=https%3A%2F%2Fapi.github.com%2F_private%2Fbrowser%2Ferrors&amp;release=e9f081b77af91626e7cfe963cde4483f5dd1f5c1&amp;actor_id=213015921&amp;is_staff=false&amp;analytics_collector_url=https%3A%2F%2Fcollector.github.com%2Fgithub%2Fcollect">
-
-      <meta name="hostname" content="github.com">
-
-
-      <meta name="keyboard-shortcuts-preference" content="all">
-      <meta name="hovercards-preference" content="true">
-      <meta name="announcement-preference-hovercard" content="true">
-
-        <meta name="expected-hostname" content="github.com">
-
-
-  <meta http-equiv="x-pjax-version" content="4d294d0f50e3c86745fad9b0393d6961cc2bce3dd587c92ef0a5f2faf4f5f836" data-turbo-track="reload">
-  <meta http-equiv="x-pjax-csp-version" content="cb4cffb7c023f774818cf728eb860debf1fc8ecf88a20487b238da276df1eb7d" data-turbo-track="reload">
-  <meta http-equiv="x-pjax-css-version" content="b3be1289ad742851e907dca55dc633edddbec00c3a025831d3c678234c6d5d77" data-turbo-track="reload">
-  <meta http-equiv="x-pjax-js-version" content="f027ef627f0768e1337e3ee61e9c9443049456bcbd39780e86b0af59157b250c" data-turbo-track="reload">
-
-  <meta name="turbo-cache-control" content="no-preview" data-turbo-transient="">
-
-      <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/github-eab9c5888b163e42.css" />
-
-
-
-    
-
-    <meta name="turbo-body-classes" content="logged-in env-production page-responsive session-authentication">
-  <meta name="disable-turbo" content="false">
-
-
-  <meta name="browser-stats-url" content="https://api.github.com/_private/browser/stats">
-
-  <meta name="browser-errors-url" content="https://api.github.com/_private/browser/errors">
-
-    <meta name="release" content="e9f081b77af91626e7cfe963cde4483f5dd1f5c1" data-turbo-track="reload">
-  <meta name="ui-target" content="full">
-
-  <link rel="mask-icon" href="https://github.githubassets.com/assets/pinned-octocat-093da3e6fa40.svg" color="#000000">
-  <link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://github.githubassets.com/favicons/favicon.png">
-  <link rel="icon" class="js-site-favicon" type="image/svg+xml" href="https://github.githubassets.com/favicons/favicon.svg" data-base-href="https://github.githubassets.com/favicons/favicon">
-
-<meta name="theme-color" content="#1e2327">
-<meta name="color-scheme" content="light dark" />
-
-
-  <link rel="manifest" href="/manifest.json" crossOrigin="use-credentials">
-
-  </head>
-
-  <body class="logged-in env-production page-responsive session-authentication" style="word-wrap: break-word;" >
-    <div data-turbo-body class="logged-in env-production page-responsive session-authentication" style="word-wrap: break-word;" >
-      <div id="__primerPortalRoot__" style="z-index: 1000; position: absolute; width: 100%;" data-turbo-permanent></div>
-      
-
-    <div class="position-relative header-wrapper js-header-wrapper ">
-      <a href="#start-of-content" data-skip-target-assigned="false" class="tmp-p-3 color-bg-accent-emphasis color-fg-on-emphasis show-on-focus js-skip-to-content">Skip to content</a>
-
-      <span data-view-component="true" class="progress-pjax-loader Progress position-fixed width-full">
-    <span style="width: 0%;" data-view-component="true" class="Progress-item progress-pjax-loader-bar left-0 top-0 color-bg-accent-emphasis"></span>
-</span>      
-      <link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/primer-react-css.d18392e72f73b5a6.module.css" />
-<link crossorigin="anonymous" media="all" rel="stylesheet" href="https://github.githubassets.com/assets/keyboard-shortcuts-dialog.93a97193ca485557.module.css" />
-
-<react-partial
-  partial-name="keyboard-shortcuts-dialog"
-  data-ssr="false"
-  data-attempted-ssr="false"
-  data-react-profiling="false"
+> **Important — Two conditions must be met for Method 1 to auto-create the ADLS storage account and enable Unity Catalog:**
 >
-  
-  <script type="application/json" data-target="react-partial.embeddedData">{"props":{"docsUrl":"https://docs.github.com/get-started/accessibility/keyboard-shortcuts"}}</script>
-  <div data-target="react-partial.reactRoot"></div>
-</react-partial>
+> 1. **Choose "Hybrid" compute mode** (not Serverless) when creating the workspace. With Serverless selected, Databricks does not provision the managed ADLS storage automatically.
+> 2. **Create a new, dedicated Resource Group for the Databricks workspace** (do not deploy into an existing resource group). Databricks injects a managed resource group during workspace creation, and an existing resource group can cause the automatic storage provisioning to fail.
+>
+> If either condition is missed, the auto-setup will not complete and Unity Catalog will not be enabled by default — you will need to follow Method 2 instead.
+
+---
+
+### Method 2 — Manual Setup (This Guide)
+
+You explicitly provision and wire up every component:
+
+- Create your **own ADLS Gen2** in your Azure subscription as the metastore root
+- Create an **Access Connector** (Managed Identity) and assign 4 IAM roles
+- Manually create the metastore pointing to **your ADLS container**
+- Create **External Locations** (bronze/silver/gold) and Storage Credentials upfront
+- Managed tables land in **your ADLS**, visible in Azure Portal and accessible by any Azure service
+
+---
+
+### Functional Differences
+
+| Dimension | Method 1 — Default (Auto) | Method 2 — Manual (This Guide) |
+|---|---|---|
+| **Managed table storage** | Databricks-owned infra — NOT visible in your Azure Portal | Your ADLS Gen2 — visible in Azure Storage Browser |
+| **Cost visibility** | Storage cost hidden inside Databricks billing | All storage in your Azure subscription — visible in Azure Cost Management |
+| **Access outside Databricks** | Managed tables not directly accessible via ADLS APIs, ADF, Synapse | Managed tables in YOUR ADLS — readable by any Azure service |
+| **Storage account ownership** | Databricks owns the metastore root | You own it — control retention, networking, encryption policies |
+| **External tables setup** | Must still add Access Connector + External Locations manually later | Pre-configured upfront as part of this setup |
+| **DROP TABLE on managed tables** | Deletes files from Databricks storage (you had no direct access anyway) | Deletes files from YOUR ADLS permanently |
+| **Data sovereignty** | If Databricks account is suspended, managed table data is at risk | Data always in your Azure subscription regardless of Databricks account status |
+| **Network / private endpoint control** | No control over metastore root storage network settings | You configure firewall, private endpoints on your own storage account |
+| **Conflict with existing metastore** | This IS the default metastore — one per region per account | If a default metastore already exists in the region, you must reuse and configure it — cannot create a second one |
+| **Setup effort** | Zero config | 10+ explicit steps |
+
+---
+
+### The Critical Behavioral Difference — Where Do Managed Tables Land?
+
+```
+Method 1 — Default (no MANAGED LOCATION set):
+
+  CREATE TABLE dev_catalog.bronze.customers ...
+  → Data goes to Databricks Default Storage (not your ADLS)
+  → DESCRIBE DETAIL shows an internal Databricks path
+  → Not visible in Azure Portal → no direct ADLS access
+
+Method 2 — Manual (MANAGED LOCATION = your ADLS subfolder):
+
+  CREATE CATALOG dev_catalog
+  MANAGED LOCATION 'abfss://unity-catalog-root@youraccount.dfs.core.windows.net/dev_catalog/'
+
+  CREATE TABLE dev_catalog.bronze.customers ...
+  → Data lands under: abfss://unity-catalog-root@youraccount.dfs.core.windows.net/dev_catalog/__unitystorage/...
+  → Visible in Azure Portal Storage Browser
+  → Accessible via ADLS APIs, ADF, Synapse Analytics
+```
+
+> **Note:** Even in Method 2, if you create a catalog or schema **without** a `MANAGED LOCATION` clause, Databricks falls back to its own Default Storage. The `MANAGED LOCATION` setting on the catalog/schema is what routes managed tables into YOUR ADLS. See [Step 9a](#11-step-9--create-catalog-schema-database-and-delta-tables) for the complete storage resolution rules.
+
+---
+
+### When to Use Which
+
+| Scenario | Recommended Method |
+|---|---|
+| POC, sandbox, learning, quick demo | Method 1 — zero config |
+| Production data lake with medallion architecture | Method 2 — your data, your storage, your governance |
+| Data must be accessible by Synapse, ADF, or non-Databricks tools | Method 2 — external tables on your ADLS |
+| Regulated industry (GDPR, HIPAA) — data residency required | Method 2 — you control storage network isolation and encryption |
+| Enterprise with Azure Cost Management chargeback | Method 2 — storage costs appear in your Azure bill |
+
+**Bottom line:** Method 1 gives you governance immediately but Databricks owns the managed table storage. Method 2 gives you the same governance **plus full data sovereignty** — your storage, your costs, your access policies. This guide implements Method 2.
 
+---
+
+## 1. Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Azure Subscription                           │
+│                                                                     │
+│  ┌──────────────────────┐      ┌──────────────────────────────────┐ │
+│  │  ADLS Gen2           │      │  Azure Databricks Workspace      │ │
+│  │  Storage Account     │◄────►│  (Premium Tier)                  │ │
+│  │                      │      │                                  │ │
+│  │  ┌────────────────┐  │      │  ┌────────────────────────────┐  │ │
+│  │  │ unity-catalog/ │  │      │  │  Unity Catalog Metastore   │  │ │
+│  │  │ (root container│  │      │  │  (Account Level)           │  │ │
+│  │  │  for metastore)│  │      │  └────────────────────────────┘  │ │
+│  │  └────────────────┘  │      │                                  │ │
+│  │  ┌────────────────┐  │      │  ┌────────────────────────────┐  │ │
+│  │  │ external-data/ │  │      │  │  Catalog > Schema > Tables │  │ │
+│  │  │ (bronze/silver │  │      │  │  (Delta Tables)            │  │ │
+│  │  │  /gold layers) │  │      │  └────────────────────────────┘  │ │
+│  │  └────────────────┘  │      └──────────────────────────────────┘ │
+│  └──────────────────────┘                   ▲                       │
+│                                             │ Managed Identity       │
+│  ┌──────────────────────────────────────────┴────────────────────┐  │
+│  │           Access Connector for Azure Databricks               │  │
+│  │           (System-Assigned Managed Identity)                  │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
+**Key Concepts:**
 
+| Component | Purpose |
+|---|---|
+| ADLS Gen2 | Underlying storage for metastore root + external data |
+| Access Connector | Azure resource that gives Databricks a managed identity to access storage |
+| Unity Catalog Metastore | Account-level metadata store (one per region) |
+| External Location | Maps an ADLS Gen2 path to Unity Catalog so it can be accessed securely |
+| Storage Credential | Wraps the Access Connector identity used by External Locations |
+| Catalog | Top-level namespace (replaces `hive_metastore`) |
+| Schema | Database inside a catalog |
+| Delta Table | Managed or External table registered in Unity Catalog |
 
+---
 
-      
+## 2. Prerequisites
 
-          <div class="authentication-header-page" role="banner">
+| Requirement | Details |
+|---|---|
+| Azure Subscription | Contributor or Owner role |
+| Databricks Account | `accounts.azuredatabricks.net` — Account Admin role |
+| Azure AD | Global Admin or User Admin (to assign roles) |
+| Region | Choose a region and stay consistent for all resources |
+| Databricks Premium | Unity Catalog requires **Premium** tier workspace |
 
-</div>
+> **Note:** Unity Catalog is managed at the **Databricks Account** level, not the workspace level. You must have an account at `accounts.azuredatabricks.net`.
 
+---
 
-      <div hidden="hidden" data-view-component="true" class="js-stale-session-flash stale-session-flash flash flash-warn flash-full">
-  
-        <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-alert">
-    <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
-</svg>
-        <span class="js-stale-session-flash-signed-in" hidden>You signed in with another tab or window. <a class="Link--inTextBlock" href="">Reload</a> to refresh your session.</span>
-        <span class="js-stale-session-flash-signed-out" hidden>You signed out in another tab or window. <a class="Link--inTextBlock" href="">Reload</a> to refresh your session.</span>
-        <span class="js-stale-session-flash-switched" hidden>You switched accounts on another tab or window. <a class="Link--inTextBlock" href="">Reload</a> to refresh your session.</span>
+## 3. Step 1 — Create an ADLS Gen2 Storage Account
 
-    <button id="icon-button-956605d0-eaf1-40df-9d2e-bcc31aa6aec5" aria-labelledby="tooltip-d188b88c-c1d2-4ef9-afc0-42e98787b3d9" type="button" data-view-component="true" class="Button Button--iconOnly Button--invisible Button--medium flash-close js-flash-close">  <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x Button-visual">
-    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
-</svg>
-</button><tool-tip id="tooltip-d188b88c-c1d2-4ef9-afc0-42e98787b3d9" for="icon-button-956605d0-eaf1-40df-9d2e-bcc31aa6aec5" popover="manual" data-direction="s" data-type="label" data-view-component="true" class="sr-only position-absolute">Dismiss alert</tool-tip>
+This storage account serves two purposes:
+- **Root storage** for the Unity Catalog metastore
+- **External storage** for your data lake (bronze/silver/gold)
 
+### Azure Portal Steps
 
-  
-</div>
-        
-        <include-fragment src="/in-product-messaging/copilot-budget-request-banner?page_path=%2Fvenkat2026training-design%2FAzureDataEngineering%2Fraw%2Frefs%2Fheads%2Fmain%2FADB-Docs%2FAzure-Databricks-Unity-Catalog-Setup-GitHub.md" data-nonce="v2:d79aacce-c939-3df5-5622-95546e93d5a9" data-view-component="true">
-  
-  <div data-show-on-forbidden-error hidden>
-    <div class="Box">
-  <div class="blankslate-container">
-    <div data-view-component="true" class="blankslate blankslate-spacious color-bg-default rounded-2">
-      
+1. Go to **Azure Portal** → Search `Storage accounts` → Click **+ Create**
+2. Fill in the **Basics** tab:
 
-      <h3 data-view-component="true" class="blankslate-heading">        Uh oh!
-</h3>
-      <p data-view-component="true" class="blankslate-description">        <p class="color-fg-muted my-2 mb-2 ws-normal">There was an error while loading. <a class="Link--inTextBlock" data-turbo="false" href="" aria-label="Please reload this page">Please reload this page</a>.</p>
-</p>
+| Field | Value |
+|---|---|
+| Subscription | Your subscription |
+| Resource Group | `rg-databricks-uc` (create new) |
+| Storage account name | `stunitycatalog<unique>` (e.g., `stunitycatalogdev01`) |
+| Region | e.g., `East US 2` |
+| Performance | **Standard** |
+| Redundancy | **LRS** (or GRS for production) |
 
-</div>  </div>
-</div>  </div>
-</include-fragment>
+3. Click **Advanced** tab:
+   - Enable **Hierarchical namespace** = **Enabled** ← (This makes it ADLS Gen2)
 
-          
-    </div>
+4. Leave **Networking**, **Data protection**, **Encryption** as defaults for dev.
 
-  <div id="start-of-content" class="show-on-focus"></div>
+5. Click **Review + Create** → **Create**
 
+---
 
+## 4. Step 2 — Create the Unity Catalog Root Container
 
+The metastore needs a dedicated container. **Do not mix metastore root with your data.**
 
+### Portal Steps
 
+1. Open the storage account → **Containers** (left panel) → **+ Container**
+2. Create the following containers:
 
+| Container Name | Purpose |
+|---|---|
+| `unity-catalog-root` | Metastore root (system metadata) |
+| `bronze` | Raw ingestion data layer |
+| `silver` | Cleansed/transformed layer |
+| `gold` | Aggregated/serving layer |
 
+3. Set **Public access level** = **Private** for all containers.
 
-    <div id="js-flash-container" class="flash-container" data-turbo-replace>
+---
 
+## 5. Step 3 — Create an Azure Databricks Workspace (Premium)
 
+Unity Catalog **requires** the Premium pricing tier.
 
+### Portal Steps
 
-  <template class="js-flash-template">
-    
-<div class="flash flash-full   {{ className }}">
-  <div >
-    <button autofocus class="flash-close js-flash-close" type="button" aria-label="Dismiss this message">
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x">
-    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
-</svg>
-    </button>
-    <div aria-atomic="true" role="alert" class="js-flash-alert">
-      
-      <div>{{ message }}</div>
+1. Go to **Azure Portal** → Search `Azure Databricks` → **+ Create**
 
-    </div>
-  </div>
-</div>
-  </template>
-</div>
+2. Fill in the **Basics** tab:
 
+| Field | Value |
+|---|---|
+| Subscription | Your subscription |
+| Resource Group | `rg-databricks-uc` |
+| Workspace name | `adb-unity-catalog-dev` |
+| Region | Same as storage account (`East US 2`) |
+| Pricing Tier | **Premium** ← Required for Unity Catalog |
 
-    
-  <notification-shelf-watcher data-base-url="https://github.com/notifications/beta/shelf" data-channel="eyJjIjoibm90aWZpY2F0aW9uLWNoYW5nZWQ6MjEzMDE1OTIxIiwidCI6MTc4MjczODQ3N30=--6329b4a7ccab8b12295f17acb04f890094103699d57951c3b78059561d2e41b9" data-view-component="true" class="js-socket-channel"></notification-shelf-watcher>
-  <div hidden data-initial data-target="notification-shelf-watcher.placeholder"></div>
+3. **Networking** tab:
+   - For dev: leave **No VNet injection** (default)
+   - For production: select **Custom VNet** and provide subnet details
 
+4. Click **Review + Create** → **Create**
 
+   > Deployment takes ~3–5 minutes.
 
+5. Once deployed, open the workspace → Click **Launch Workspace** to ensure it opens correctly.
 
+---
 
+## 6. Step 4 — Create an Access Connector for Azure Databricks
 
-  <div
-    class="application-main "
-    data-commit-hovercards-enabled
-    data-discussion-hovercards-enabled
-    data-issue-and-pr-hovercards-enabled
-    data-project-hovercards-enabled
-  >
-      <main>
-        
-<div class="text-center mx-auto m-2" style="width: 630px">
-  <div class="d-flex flex-items-center">
-    <h2 class="f2 text-normal flex-auto">Two-factor authentication (2FA)</h2>
-  </div>
-  <div class="d-flex tmp-mb-5 flex-items-center">
-    <h2 class="f2 text-normal flex-auto"> is required for your GitHub account</h2>
-  </div>
-
-  <div class="auth-form-body tmp-mb-4" style="padding: 30px">
-
-    <div class="d-flex flex-column flex-auto tmp-mb-4">
-      <div class="d-flex flex-justify-center mb-2">
-        <img img_class="avatar" src="https://avatars.githubusercontent.com/u/213015921?s=100&amp;v=4" width="50" height="50" alt="@dataarchitectstudio" class=" avatar-user" />
-      </div>
-      <div class="text-center">
-        <h3 class="color-fg-default lh-condensed">DataArchitectStudio</h3>
-        <h4 class="color-fg-muted lh-condensed text-normal">dataarchitectstudio</h4>
-      </div>
-    </div>
-
-    <div data-view-component="true" class="tmp-mb-4 flash flash-full">
-  
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-info float-left v-align-top mt-1 tmp-mt-1 mb-4 tmp-mb-4">
-    <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path>
-</svg>
-      <div class="text-left">
-        <b>This will only take a minute.</b>
-      </div>
-      <div class="text-left">
-        Enable 2FA now. You'll be able to continue on with your work right after.
-      </div>
-
-
-  
-</div>
-    <p class="tmp-mb-4 text-left">Two-factor authentication adds an
-      <a class="Link--primary text-underline" href="https://docs.github.com/authentication/securing-your-account-with-two-factor-authentication-2fa/about-two-factor-authentication">additional layer of account security</a>.
-      It is a proven method of keeping you safe from hackers and account takeover, even if your password is stolen or compromised.
-    </p>
-
-    <div class="d-flex flex-justify-center">
-      <!-- '"` --><!-- </textarea></xmp> --></option></form><form data-turbo="false" action="/settings/account_two_factor_requirement/interrupt" accept-charset="UTF-8" method="post"><input type="hidden" name="authenticity_token" value="pl56H8t6z_5sf6cbgpDOQltEgIzkk8yioVCQxiG2SqyF3tftgN9bmQHkqCD9OO0ZTgV4LMGW5L6GoI6LBfNcHw" />
-        <input type="hidden" name="return_to" id="return_to" value="https://github.com/venkat2026training-design/AzureDataEngineering/raw/refs/heads/main/ADB-Docs/Azure-Databricks-Unity-Catalog-Setup-GitHub.md" autocomplete="off" class="form-control" />
-          <button name="type" value="setup" style="width: 200px; height: 40px" type="submit" data-view-component="true" class="btn-primary btn btn-block">    Enable 2FA now
-</button>
-</form>    </div>
-  </div>
-
-    <div class="text-left tmp-mb-3">
-      <p class="f4 text-normal">You may no longer delay this requirement. Please enable two-factor authentication to continue.</p>
-    </div>
-</div>
-
-      </main>
-  </div>
-
-          <div class="footer-session-authentication" role="contentinfo">
-    <ul class="footer-session-authentication-links">
-        <li>
-          <a data-analytics-event="{&quot;category&quot;:&quot;Footer&quot;,&quot;action&quot;:&quot;go to Terms&quot;,&quot;label&quot;:&quot;text:terms&quot;}" href="https://docs.github.com/site-policy/github-terms/github-terms-of-service" data-view-component="true" class="Link--secondary Link">Terms</a>
-        </li>
-
-        <li>
-          <a data-analytics-event="{&quot;category&quot;:&quot;Footer&quot;,&quot;action&quot;:&quot;go to privacy&quot;,&quot;label&quot;:&quot;text:privacy&quot;}" href="https://docs.github.com/site-policy/privacy-policies/github-privacy-statement" data-view-component="true" class="Link--secondary Link">Privacy</a>
-        </li>
-
-        <li>
-          <a data-analytics-event="{&quot;category&quot;:&quot;Footer&quot;,&quot;action&quot;:&quot;go to docs&quot;,&quot;label&quot;:&quot;text:docs&quot;}" href="https://docs.github.com" data-view-component="true" class="Link--secondary Link">Docs</a>
-        </li>
-
-        <li>
-            <a data-analytics-event="{&quot;category&quot;:&quot;Footer&quot;,&quot;action&quot;:&quot;go to contact&quot;,&quot;label&quot;:&quot;text:contact&quot;}" href="https://support.github.com" data-view-component="true" class="Link--secondary Link">Contact GitHub Support</a>
-        </li>
-
-    </ul>
-  </div>
-
-
-
-
-
-
-  <div id="ajax-error-message" class="ajax-error-message flash flash-error" hidden>
-    <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-alert">
-    <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>
-</svg>
-    <button type="button" class="flash-close js-ajax-error-dismiss" aria-label="Dismiss error">
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x">
-    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
-</svg>
-    </button>
-    You can’t perform that action at this time.
-  </div>
-
-    <template id="site-details-dialog">
-  <details class="details-reset details-overlay details-overlay-dark lh-default color-fg-default hx_rsm" open>
-    <summary role="button" aria-label="Close dialog"></summary>
-    <details-dialog class="Box Box--overlay d-flex flex-column anim-fade-in fast hx_rsm-dialog hx_rsm-modal">
-      <button class="Box-btn-octicon m-0 btn-octicon position-absolute right-0 top-0" type="button" aria-label="Close dialog" data-close-dialog>
-        <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-x">
-    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
-</svg>
-      </button>
-      <div class="octocat-spinner tmp-my-6 js-details-dialog-spinner"></div>
-    </details-dialog>
-  </details>
-</template>
-
-    <div class="Popover js-hovercard-content position-absolute" style="display: none; outline: none;">
-  <div class="Popover-message Popover-message--bottom-left Popover-message--large Box color-shadow-large" style="width:360px;">
-  </div>
-</div>
-
-    <template id="snippet-clipboard-copy-button">
-  <div class="zeroclipboard-container position-absolute right-0 top-0">
-    <clipboard-copy aria-label="Copy code to clipboard" class="ClipboardButton btn js-clipboard-copy m-2 p-0" data-copy-feedback="Copied!" data-tooltip-direction="w">
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-copy js-clipboard-copy-icon m-2 tmp-m-2">
-    <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>
-</svg>
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-check js-clipboard-check-icon color-fg-success d-none m-2 tmp-m-2">
-    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>
-</svg>
-    </clipboard-copy>
-  </div>
-</template>
-<template id="snippet-clipboard-copy-button-unpositioned">
-  <div class="zeroclipboard-container">
-    <clipboard-copy aria-label="Copy code to clipboard" class="ClipboardButton btn btn-invisible js-clipboard-copy m-2 p-0 d-flex flex-justify-center flex-items-center" data-copy-feedback="Copied!" data-tooltip-direction="w">
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-copy js-clipboard-copy-icon">
-    <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>
-</svg>
-      <svg aria-hidden="true" data-component="Octicon" height="16" viewBox="0 0 16 16" version="1.1" width="16" data-view-component="true" class="octicon octicon-check js-clipboard-check-icon color-fg-success d-none">
-    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>
-</svg>
-    </clipboard-copy>
-  </div>
-</template>
-
-
-    <style>
-      .user-mention[href$="/dataarchitectstudio"] {
-        color: var(--color-user-mention-fg);
-        background-color: var(--bgColor-attention-muted, var(--color-attention-subtle));
-        border-radius: 2px;
-        margin-left: -2px;
-        margin-right: -2px;
-      }
-      .user-mention[href$="/dataarchitectstudio"]:before,
-      .user-mention[href$="/dataarchitectstudio"]:after {
-        content: '';
-        display: inline-block;
-        width: 2px;
-      }
-    </style>
-
-
-    </div>
-    <div id="js-global-screen-reader-notice" class="sr-only mt-n1" aria-live="polite" aria-atomic="true" ></div>
-    <div id="js-global-screen-reader-notice-assertive" class="sr-only mt-n1" aria-live="assertive" aria-atomic="true"></div>
-  </body>
-</html>
+The **Access Connector** is an Azure resource that provides a **managed identity** (service principal) that Databricks uses to access ADLS Gen2 securely — without storing credentials.
 
+### Portal Steps
 
+1. Go to **Azure Portal** → Search `Access Connector for Azure Databricks` → **+ Create**
+
+2. Fill in:
+
+| Field | Value |
+|---|---|
+| Subscription | Your subscription |
+| Resource Group | `rg-databricks-uc` |
+| Name | `adb-access-connector-dev` |
+| Region | Same region (`East US 2`) |
+
+3. Click **Review + Create** → **Create**
+
+4. Once deployed, open the Access Connector resource:
+   - Go to **Identity** (left panel)
+   - Confirm **System-assigned managed identity** status = **On**
+   - **Copy the Object (principal) ID** — you will need this for role assignment
+
+---
+
+## 7. Step 5 — Assign Storage Permissions to the Access Connector
+
+The Access Connector's managed identity needs **4 roles** assigned correctly. Assigning only `Storage Blob Data Contributor` is not enough — missing roles cause the **"File Events Read Failed"** error during metastore provisioning.
+
+### Required Roles — Full List
+
+| Role | Assign At | Purpose |
+|---|---|---|
+| `Storage Blob Data Contributor` | Storage Account | Read/write data files in ADLS Gen2 |
+| `Storage Account Contributor` | Storage Account | Manage storage account resources |
+| `Storage Queue Data Contributor` | Storage Account | Read/write to Azure Storage Queues (file event tracking) |
+| `EventGrid EventSubscription Contributor` | **Resource Group** | Create Event Grid subscriptions for file change notifications |
+
+> **Important:** `EventGrid EventSubscription Contributor` must be assigned at the **Resource Group** level, not the storage account level.
+
+---
+
+### Portal Steps — Assign Roles on the Storage Account
+
+Repeat the following for each of the first **3 roles**:
+
+1. Go to your Storage Account (`stunitycatalogdev01`)
+2. Click **Access Control (IAM)** → **+ Add** → **Add role assignment**
+3. Search for the role name (see table above) → click it → **Next**
+4. **Members** tab:
+   - Assign access to: **Managed identity**
+   - Click **+ Select members**
+   - Subscription: your subscription
+   - Managed identity: **Access connector for Azure Databricks**
+   - Select: `adb-access-connector-dev`
+5. Click **Review + Assign** → **Assign**
+
+Assign all three roles this way:
+- `Storage Blob Data Contributor`
+- `Storage Account Contributor`
+- `Storage Queue Data Contributor`
+
+---
+
+### Portal Steps — Assign EventGrid Role on the Resource Group
+
+1. Go to **Azure Portal → Resource Groups → `rg-databricks-uc`**
+2. Click **Access Control (IAM)** → **+ Add** → **Add role assignment**
+3. Search: `EventGrid EventSubscription Contributor` → click it → **Next**
+4. **Members** tab:
+   - Assign access to: **Managed identity**
+   - Click **+ Select members**
+   - Managed identity: **Access connector for Azure Databricks**
+   - Select: `adb-access-connector-dev`
+5. Click **Review + Assign** → **Assign**
+
+---
+
+### Verify All 4 Roles Are Assigned
+
+1. Go to **Storage Account → Access Control (IAM) → Role assignments** tab
+2. Filter by the Access Connector name — confirm these 3 roles appear:
+   - `Storage Blob Data Contributor`
+   - `Storage Account Contributor`
+   - `Storage Queue Data Contributor`
+3. Go to **Resource Group → Access Control (IAM) → Role assignments** tab — confirm:
+   - `EventGrid EventSubscription Contributor`
+
+> Wait **2–3 minutes** for IAM role propagation before proceeding to metastore creation.
+
+---
+
+## 8. Step 6 — Create & Configure the Unity Catalog Metastore
+
+The **Metastore** is created once per region at the **Databricks Account** level.
+
+### Step 6a — Log in to Databricks Account Console
+
+1. Navigate to: `https://accounts.azuredatabricks.net`
+2. Sign in with your Azure AD account that has **Account Admin** role
+3. You should see the Databricks Account Console dashboard
+
+> **Cannot log in? — Common issue with personal Microsoft accounts**
+>
+> If you see the error _"Selected user account does not exist in tenant 'Microsoft Services'"_,
+> your account is a personal Microsoft account (e.g. `@outlook.com`, `@gmail.com`) and is not
+> recognized as an Azure AD organizational identity. Follow the steps below to resolve this.
+
+#### If you are unable to log in — Create an Entra ID Admin User
+
+**Step 1 — Create a new user in Microsoft Entra ID (Azure AD)**
+
+1. Log in to **Azure Portal** → Search **Microsoft Entra ID** → **Users** → **+ New user** → **Create user**
+2. Fill in:
+
+| Field | Value |
+|---|---|
+| User principal name | `adb-admin@<yourdomain>.onmicrosoft.com` |
+| Display name | `ADB Admin` |
+| Password | Auto-generate or set manually — **note it down** |
+
+3. Click **Create**
+
+**Step 2 — Assign Global Administrator role to the new user**
+
+1. In **Microsoft Entra ID** → **Roles and administrators**
+2. Search for and click **Global Administrator**
+3. Click **+ Add assignments** → select `adb-admin@<yourdomain>.onmicrosoft.com` → **Add**
+
+**Step 3 — Log in to Databricks Account Console with the new user**
+
+1. Open a **private / incognito browser window**
+2. Navigate to `https://accounts.azuredatabricks.net`
+3. Click **Sign in with Microsoft**
+4. Enter `adb-admin@<yourdomain>.onmicrosoft.com` and the password from Step 1
+5. Azure will prompt you to **change the password on first login** — set a new password and continue
+6. Azure will then ask you to **set up Multi-Factor Authentication (MFA)** — follow the steps below before proceeding
+7. After MFA is configured you will land on the Databricks Account Console as an **Account Admin**
+
+> **Be ready — MFA Setup is mandatory for Global Administrator accounts on first login.**
+> Download the **Microsoft Authenticator** app on your phone before starting Step 3.
+
+#### MFA Setup — Microsoft Authenticator (prompted automatically on first login)
+
+**On your phone — before logging in:**
+1. Open the **App Store** (iPhone) or **Google Play Store** (Android)
+2. Search for **Microsoft Authenticator** → Install it
+3. Open the app → tap **Add account** → choose **Work or school account**
+
+**Back in the browser — when prompted during login:**
+
+1. Azure shows the screen **"More information required"** → click **Next**
+2. On the **"Keep your account secure"** page → click **Next**
+3. A **QR code** appears on screen
+4. On your phone in the Authenticator app → tap **Scan a QR code** → point the camera at the QR code on screen
+5. The account `adb-admin@<yourdomain>.onmicrosoft.com` will appear in the app
+6. The browser will send a **test notification** to your phone → tap **Approve** on the phone
+7. Click **Next** → **Done** in the browser
+
+> After MFA setup, every login with this account will send an approval notification to the Authenticator app.
+> Tap **Approve** on your phone to complete the sign-in.
+
+**Step 4 — Assign Account Admin role to your actual user**
+
+Once inside the Account Console with the new admin user, grant your real account access so you do not need the temporary admin user going forward:
+
+1. In the Account Console → **Settings** (bottom-left gear icon) → **User management**
+2. Click the **Admins** tab → **Add admin**
+3. Search for your actual user email → select it → **Confirm**
+4. Your actual user now has **Account Admin** access to the Databricks Account Console
+
+> You can now log out of the temporary `adb-admin` account, open a new browser window,
+> and sign in to `https://accounts.azuredatabricks.net` using your actual Azure AD account.
+
+### Step 6b — Create the Metastore
+
+1. In the Account Console, click **Catalog** (left sidebar) or **Data** → **Unity Catalog**
+2. Click **Create Metastore**
+3. Fill in:
+
+| Field | Value |
+|---|---|
+| Name | `metastore-eastus2-dev` |
+| Region | `eastus2` ← Must match your workspace region |
+| ADLS Gen2 path | `abfss://unity-catalog-root@stunitycatalogdev01.dfs.core.windows.net/` |
+| Access Connector ID | Full resource ID of `adb-access-connector-dev` |
+
+**How to get the Access Connector Resource ID:**
+- Go to the Access Connector resource in Azure Portal → **Overview** → **JSON View** → copy the `id` field
+- Format: `/subscriptions/<sub-id>/resourceGroups/rg-databricks-uc/providers/Microsoft.Databricks/accessConnectors/adb-access-connector-dev`
+
+4. Click **Create** — the metastore is now provisioned.
+
+> One metastore per region per account. If you already have one in `eastus2`, skip creation and reuse it.
+
+---
+
+## 9. Step 7 — Assign the Metastore to the Workspace
+
+A metastore must be explicitly linked to each workspace.
+
+### Account Console Steps
+
+1. In the Account Console → **Catalog** → Select your metastore (`metastore-eastus2-dev`)
+2. Click **Workspaces** tab → **Assign to workspace**
+3. Select `adb-unity-catalog-dev` from the list
+4. Click **Assign**
+
+### Verify in the Workspace
+
+1. Open the Databricks workspace: `https://adb-<workspace-id>.azuredatabricks.net`
+2. Click **Catalog** (left sidebar)
+3. You should see the Unity Catalog explorer with a `main` catalog and `hive_metastore`
+
+---
+
+## 10. Step 8 — Create External Location & Storage Credential
+
+**Storage Credential** wraps the Access Connector identity.
+**External Location** maps a specific ADLS Gen2 path to Unity Catalog.
+
+### Step 8a — Create Storage Credential
+
+**Via Databricks UI:**
+
+1. In the workspace → **Catalog** → **External Data** → **Storage Credentials** → **+ Add**
+2. Fill in:
+
+| Field | Value |
+|---|---|
+| Credential name | `sc-adls-dev` |
+| Authentication method | **Azure Managed Identity** |
+| Access Connector ID | `/subscriptions/<sub-id>/resourceGroups/rg-databricks-uc/providers/Microsoft.Databricks/accessConnectors/adb-access-connector-dev` |
+
+3. Click **Create**
+
+**Via SQL (in a Databricks notebook or SQL editor):**
+
+```sql
+CREATE STORAGE CREDENTIAL `sc-adls-dev`
+WITH AZURE_MANAGED_IDENTITY (
+  CONNECTOR_ID = '/subscriptions/<subscription-id>/resourceGroups/rg-databricks-uc/providers/Microsoft.Databricks/accessConnectors/adb-access-connector-dev'
+);
+```
+
+### Step 8b — Create External Location for Bronze Layer
+
+**Via Databricks UI:**
+
+1. **Catalog** → **External Data** → **External Locations** → **+ Add**
+2. Fill in:
+
+| Field | Value |
+|---|---|
+| External location name | `ext-loc-bronze` |
+| URL | `abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/` |
+| Storage credential | `sc-adls-dev` |
+
+3. Click **Create** → Click **Test connection** to verify
+
+**Via SQL:**
+
+```sql
+CREATE EXTERNAL LOCATION `ext-loc-bronze`
+URL 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/'
+WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+
+-- Test the location
+VALIDATE STORAGE CREDENTIAL `sc-adls-dev`
+ON LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/';
+```
+
+Repeat for silver and gold:
+
+```sql
+CREATE EXTERNAL LOCATION `ext-loc-silver`
+URL 'abfss://silver@stunitycatalogdev01.dfs.core.windows.net/'
+WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+
+CREATE EXTERNAL LOCATION `ext-loc-gold`
+URL 'abfss://gold@stunitycatalogdev01.dfs.core.windows.net/'
+WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+```
+
+---
+
+## 11. Step 9 — Create Catalog, Schema (Database), and Delta Tables
+
+### Step 9a — Create a Catalog
+
+> **Critical Rule — Where do managed tables get stored?**
+>
+> If you create a catalog or schema **without** a `MANAGED LOCATION`, Databricks stores managed tables in its own internal **"Default Storage"** — which is Databricks-owned cloud infrastructure, NOT your ADLS account. You will NOT see those files in Azure Portal.
+>
+> To store managed tables in **your ADLS root**, you must set `MANAGED LOCATION` to a **subfolder** inside your metastore container — the root path itself cannot be used (causes `LOCATION_OVERLAP` error).
+
+```
+❌ No MANAGED LOCATION set anywhere
+      → managed tables go to "Default Storage" (Databricks-owned, not visible in your Azure)
+
+✅ MANAGED LOCATION set to a subfolder of your metastore container
+      → managed tables go to YOUR ADLS under __unitystorage/ inside that subfolder
+```
+
+#### Managed Location Path Rules
+
+| Path | Result |
+|---|---|
+| `abfss://metastore@storage.dfs.core.windows.net/` | ❌ ERROR — root is reserved for the metastore |
+| `abfss://metastore@storage.dfs.core.windows.net/dev_catalog/` | ✅ Subfolder — works correctly |
+| `abfss://metastore@storage.dfs.core.windows.net/staging_catalog/` | ✅ Subfolder — works correctly |
+| No `MANAGED LOCATION` clause | ⚠️ Tables go to Databricks Default Storage (not your ADLS) |
+
+---
+
+#### Create Catalog — With MANAGED LOCATION Subfolder (Recommended)
+
+Use a unique subfolder name per catalog inside your metastore container:
+
+```sql
+-- dev environment catalog
+CREATE CATALOG IF NOT EXISTS dev_catalog
+MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/'
+COMMENT 'Dev catalog — managed tables stored under dev_catalog/ subfolder in ADLS';
+
+-- staging environment catalog
+CREATE CATALOG IF NOT EXISTS staging_catalog
+MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/staging_catalog/'
+COMMENT 'Staging catalog — managed tables stored under staging_catalog/ subfolder';
+
+-- prod environment catalog
+CREATE CATALOG IF NOT EXISTS prod_catalog
+MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/prod_catalog/'
+COMMENT 'Prod catalog — managed tables stored under prod_catalog/ subfolder';
+
+-- Verify — check "Managed Location" field in the output
+DESCRIBE CATALOG EXTENDED dev_catalog;
+
+-- List all catalogs
+SHOW CATALOGS;
+```
+
+#### Alter an Existing Catalog's Managed Location
+
+```sql
+-- Change managed location — applies to NEW tables only, existing data is NOT moved
+ALTER CATALOG dev_catalog
+SET MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/';
+```
+
+> The `main` catalog is auto-created by Unity Catalog. Always create separate catalogs per environment (dev / staging / prod).
+
+---
+
+### Step 9b — Create Schemas (Databases)
+
+Schemas inside a catalog **inherit** the catalog's `MANAGED LOCATION` automatically. You do not need to set a managed location on each schema unless you want each layer (bronze/silver/gold) stored in a different ADLS container.
+
+#### Option A — Schemas inheriting from catalog (simplest — recommended)
+
+```sql
+USE CATALOG dev_catalog;
+
+-- Schemas inherit the catalog's managed location:
+-- abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/
+-- All managed tables land under dev_catalog/__unitystorage/schemas/<uuid>/
+
+CREATE SCHEMA IF NOT EXISTS bronze
+  COMMENT 'Raw ingested data';
+
+CREATE SCHEMA IF NOT EXISTS silver
+  COMMENT 'Cleansed and conformed data';
+
+CREATE SCHEMA IF NOT EXISTS gold
+  COMMENT 'Aggregated and serving layer';
+
+-- Verify
+SHOW SCHEMAS IN dev_catalog;
+```
+
+#### Option B — Schemas with separate ADLS containers per layer
+
+Use this only if you want bronze/silver/gold managed tables in completely separate ADLS containers.
+
+```sql
+USE CATALOG dev_catalog;
+
+CREATE SCHEMA IF NOT EXISTS bronze
+MANAGED LOCATION 'abfss://bronze@valaxystadlsunitycatalog.dfs.core.windows.net/managed/'
+COMMENT 'Raw ingested data — managed tables in bronze container';
+
+CREATE SCHEMA IF NOT EXISTS silver
+MANAGED LOCATION 'abfss://silver@valaxystadlsunitycatalog.dfs.core.windows.net/managed/'
+COMMENT 'Cleansed data — managed tables in silver container';
+
+CREATE SCHEMA IF NOT EXISTS gold
+MANAGED LOCATION 'abfss://gold@valaxystadlsunitycatalog.dfs.core.windows.net/managed/'
+COMMENT 'Aggregated data — managed tables in gold container';
+
+-- Verify each schema's managed location
+DESCRIBE SCHEMA EXTENDED dev_catalog.bronze;
+DESCRIBE SCHEMA EXTENDED dev_catalog.silver;
+DESCRIBE SCHEMA EXTENDED dev_catalog.gold;
+```
+
+#### Alter an Existing Schema's Managed Location
+
+```sql
+ALTER SCHEMA dev_catalog.bronze
+SET MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/bronze/';
+```
+
+### Step 9c — Create Managed Delta Tables
+
+A managed table has **no LOCATION clause**. Where the data lands depends entirely on whether you set `MANAGED LOCATION` on the catalog or schema in the steps above.
+
+| Catalog/Schema setup | Where managed tables are stored |
+|---|---|
+| Catalog has `MANAGED LOCATION` subfolder set | Your ADLS under `<subfolder>/__unitystorage/schemas/<uuid>/` |
+| Schema has `MANAGED LOCATION` set | Your ADLS under that schema path `/__unitystorage/schemas/<uuid>/` |
+| Neither catalog nor schema has `MANAGED LOCATION` | **Databricks Default Storage** — NOT in your ADLS, not visible in Azure Portal |
+
+> **To store managed tables in your ADLS root:** Always create the catalog with `MANAGED LOCATION` pointing to a subfolder inside your metastore container (e.g. `.../dev_catalog/`). Schemas inside that catalog will automatically inherit it.
+
+#### Verify before creating tables — confirm catalog has managed location
+
+```sql
+-- Confirm your catalog has a managed location set (not empty)
+DESCRIBE CATALOG EXTENDED dev_catalog;
+-- Look for: "Managed Location" = abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/
+-- If it shows empty or "Default Storage" → run ALTER CATALOG first (see Step 9a)
+```
+
+```sql
+-- Step 1: Set catalog and schema context
+USE CATALOG dev_catalog;
+USE SCHEMA bronze;
+
+-- Step 2: Create managed table — NO LOCATION clause
+-- Data will land in:
+-- abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/__unitystorage/schemas/<uuid>/<table-uuid>/
+CREATE TABLE IF NOT EXISTS customers (
+  customer_id   BIGINT        NOT NULL,
+  first_name    STRING        NOT NULL,
+  last_name     STRING        NOT NULL,
+  email         STRING,
+  phone         STRING,
+  created_date  DATE,
+  country       STRING,
+  is_active     BOOLEAN       DEFAULT true
+)
+USING DELTA
+COMMENT 'Customer master data - raw ingestion'
+TBLPROPERTIES (
+  'delta.enableChangeDataFeed' = 'true'
+);
+
+-- Step 3: Insert sample data
+INSERT INTO dev_catalog.bronze.customers VALUES
+  (1, 'Alice',   'Smith',   'alice@example.com',  '555-0101', '2024-01-15', 'US',  true),
+  (2, 'Bob',     'Jones',   'bob@example.com',    '555-0102', '2024-02-20', 'UK',  true),
+  (3, 'Charlie', 'Brown',   'charlie@example.com','555-0103', '2024-03-10', 'US',  false);
+
+-- Step 4: Query data
+SELECT * FROM dev_catalog.bronze.customers;
+
+-- Step 5: Confirm table is stored in YOUR ADLS (not Default Storage)
+DESCRIBE DETAIL dev_catalog.bronze.customers;
+-- "location" must start with:
+-- abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/__unitystorage/
+-- If it shows "Default Storage" → catalog was created without MANAGED LOCATION (see Step 9a)
+```
+
+### Step 9d — Create External Delta Tables
+
+External tables store data in your ADLS Gen2 paths (bronze/silver/gold containers). You manage the data lifecycle.
+
+```sql
+-- External Delta Table pointing to ADLS Gen2 bronze container
+CREATE TABLE IF NOT EXISTS dev_catalog.bronze.sales_orders
+(
+  order_id      BIGINT    NOT NULL,
+  customer_id   BIGINT    NOT NULL,
+  order_date    DATE,
+  product_code  STRING,
+  quantity      INT,
+  unit_price    DECIMAL(10,2),
+  total_amount  DECIMAL(10,2),
+  status        STRING
+)
+USING DELTA
+LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/'
+COMMENT 'Sales orders - external Delta table on ADLS Gen2'
+PARTITIONED BY (order_date);
+
+-- Insert sample data
+INSERT INTO dev_catalog.bronze.sales_orders VALUES
+  (1001, 1, '2024-06-01', 'PROD-A', 2, 49.99, 99.98,  'COMPLETED'),
+  (1002, 2, '2024-06-02', 'PROD-B', 1, 199.00,199.00, 'PENDING'),
+  (1003, 1, '2024-06-03', 'PROD-A', 5, 49.99, 249.95, 'COMPLETED');
+
+SELECT * FROM dev_catalog.bronze.sales_orders;
+```
+
+### Step 9e — Create Silver Layer Table (with Transformation)
+
+```sql
+-- Silver layer: cleansed and joined
+CREATE TABLE IF NOT EXISTS dev_catalog.silver.customer_orders
+USING DELTA
+LOCATION 'abfss://silver@stunitycatalogdev01.dfs.core.windows.net/customer_orders/'
+COMMENT 'Joined customer and order data - silver layer'
+AS
+SELECT
+  c.customer_id,
+  c.first_name || ' ' || c.last_name  AS customer_name,
+  c.country,
+  o.order_id,
+  o.order_date,
+  o.product_code,
+  o.quantity,
+  o.total_amount,
+  o.status
+FROM dev_catalog.bronze.customers  c
+JOIN dev_catalog.bronze.sales_orders o
+  ON c.customer_id = o.customer_id
+WHERE c.is_active = true;
+
+SELECT * FROM dev_catalog.silver.customer_orders;
+```
+
+### Step 9f — Create Gold Layer Aggregated Table
+
+```sql
+-- Gold layer: aggregated metrics
+CREATE TABLE IF NOT EXISTS dev_catalog.gold.customer_revenue_summary
+USING DELTA
+LOCATION 'abfss://gold@stunitycatalogdev01.dfs.core.windows.net/customer_revenue_summary/'
+COMMENT 'Customer revenue summary - gold layer'
+AS
+SELECT
+  customer_id,
+  customer_name,
+  country,
+  COUNT(order_id)        AS total_orders,
+  SUM(total_amount)      AS total_revenue,
+  AVG(total_amount)      AS avg_order_value,
+  MAX(order_date)        AS last_order_date
+FROM dev_catalog.silver.customer_orders
+WHERE status = 'COMPLETED'
+GROUP BY customer_id, customer_name, country;
+
+SELECT * FROM dev_catalog.gold.customer_revenue_summary;
+```
+
+---
+
+## 11b. Managed vs External Tables — Complete Guide
+
+### Key Differences
+
+| | Managed Table | External Table |
+|---|---|---|
+| **Storage location** | Databricks controls — stored under metastore root or catalog managed location | You control — stored at a path you specify in ADLS Gen2 |
+| **Created with** | `CREATE TABLE ... USING DELTA` (no LOCATION clause) | `CREATE TABLE ... USING DELTA LOCATION 'abfss://...'` |
+| **DROP TABLE behaviour** | Deletes **both metadata AND data files** permanently | Deletes **metadata only** — data files remain in ADLS |
+| **Data lifecycle** | Fully managed by Databricks | Managed by you |
+| **Access outside Databricks** | Not easily — path is internal | Yes — files are in your own ADLS container |
+| **Schema enforcement** | Full Unity Catalog enforcement | Full Unity Catalog enforcement |
+| **ACID / Time travel** | Yes (Delta) | Yes (Delta) |
+| **Best for** | Scratch tables, ML features, intermediate results | Production data lake tables (bronze/silver/gold), shared data |
+
+---
+
+### Step-by-Step: Create a Managed Table
+
+A managed table has **no LOCATION clause** — Databricks picks where to store the data.
+
+**Step 1 — Set the context**
+
+```sql
+USE CATALOG dev_catalog;
+USE SCHEMA bronze;
+```
+
+**Step 2 — Create the managed table using SQL DDL**
+
+```sql
+CREATE TABLE IF NOT EXISTS dev_catalog.bronze.customers_managed (
+  customer_id   BIGINT        NOT NULL,
+  first_name    STRING        NOT NULL,
+  last_name     STRING        NOT NULL,
+  email         STRING,
+  phone         STRING,
+  country       STRING,
+  created_date  DATE,
+  is_active     BOOLEAN       DEFAULT true
+)
+USING DELTA
+COMMENT 'Customer master — managed table, storage owned by Databricks'
+TBLPROPERTIES (
+  'delta.enableChangeDataFeed'           = 'true',
+  'delta.autoOptimize.optimizeWrite'     = 'true'
+);
+```
+
+**Step 3 — Insert data**
+
+```sql
+INSERT INTO dev_catalog.bronze.customers_managed VALUES
+  (1, 'Alice',   'Smith',   'alice@example.com',   '555-0101', 'US', '2024-01-15', true),
+  (2, 'Bob',     'Jones',   'bob@example.com',     '555-0102', 'UK', '2024-02-20', true),
+  (3, 'Charlie', 'Brown',   'charlie@example.com', '555-0103', 'US', '2024-03-10', false);
+```
+
+**Step 4 — Verify table and its storage location**
+
+```sql
+-- Check data
+SELECT * FROM dev_catalog.bronze.customers_managed;
+
+-- Check where Databricks stored the data (under metastore root)
+DESCRIBE DETAIL dev_catalog.bronze.customers_managed;
+-- The "location" column shows the auto-assigned path under the metastore root
+```
+
+**Step 5 — Create managed table using PySpark**
+
+```python
+from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, BooleanType
+
+schema = StructType([
+    StructField("customer_id",  LongType(),    False),
+    StructField("first_name",   StringType(),  False),
+    StructField("last_name",    StringType(),  False),
+    StructField("email",        StringType(),  True),
+    StructField("country",      StringType(),  True),
+    StructField("created_date", DateType(),    True),
+    StructField("is_active",    BooleanType(), True),
+])
+
+data = [
+    (1, "Alice",   "Smith",   "alice@example.com",   "US", "2024-01-15", True),
+    (2, "Bob",     "Jones",   "bob@example.com",     "UK", "2024-02-20", True),
+    (3, "Charlie", "Brown",   "charlie@example.com", "US", "2024-03-10", False),
+]
+
+df = spark.createDataFrame(data, schema=schema)
+
+# Write as managed table — no path needed
+df.write \
+  .format("delta") \
+  .mode("overwrite") \
+  .saveAsTable("dev_catalog.bronze.customers_managed")
+
+spark.table("dev_catalog.bronze.customers_managed").show()
+```
+
+**Step 6 — Verify DROP deletes data**
+
+```sql
+-- WARNING: This permanently deletes both metadata AND data files
+DROP TABLE dev_catalog.bronze.customers_managed;
+
+-- The data is gone — cannot be recovered unless you have a backup
+```
+
+---
+
+### Step-by-Step: Create an External Table
+
+An external table uses a **LOCATION clause** pointing to your ADLS Gen2 path.
+Databricks registers the metadata but you own the files.
+
+**Step 1 — Make sure the External Location is already created (Step 8)**
+
+```sql
+-- Verify your external location exists and is accessible
+SHOW EXTERNAL LOCATIONS;
+
+-- Test the path is reachable
+VALIDATE STORAGE CREDENTIAL `sc-adls-dev`
+ON LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/';
+```
+
+**Step 2 — Create the external table using SQL DDL**
+
+```sql
+CREATE TABLE IF NOT EXISTS dev_catalog.bronze.sales_orders_external (
+  order_id      BIGINT         NOT NULL,
+  customer_id   BIGINT         NOT NULL,
+  order_date    DATE,
+  product_code  STRING,
+  quantity      INT,
+  unit_price    DECIMAL(10,2),
+  total_amount  DECIMAL(10,2),
+  status        STRING
+)
+USING DELTA
+LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/'
+COMMENT 'Sales orders — external table, data stored in ADLS bronze container'
+PARTITIONED BY (order_date)
+TBLPROPERTIES (
+  'delta.enableChangeDataFeed'       = 'true',
+  'delta.autoOptimize.optimizeWrite' = 'true'
+);
+```
+
+**Step 3 — Insert data**
+
+```sql
+INSERT INTO dev_catalog.bronze.sales_orders_external VALUES
+  (1001, 1, '2024-06-01', 'PROD-A', 2, 49.99,  99.98,  'COMPLETED'),
+  (1002, 2, '2024-06-02', 'PROD-B', 1, 199.00, 199.00, 'PENDING'),
+  (1003, 1, '2024-06-03', 'PROD-A', 5, 49.99,  249.95, 'COMPLETED'),
+  (1004, 3, '2024-06-04', 'PROD-C', 3, 75.00,  225.00, 'COMPLETED');
+```
+
+**Step 4 — Verify table and its storage location**
+
+```sql
+-- Check data
+SELECT * FROM dev_catalog.bronze.sales_orders_external;
+
+-- Confirm location points to your ADLS path
+DESCRIBE DETAIL dev_catalog.bronze.sales_orders_external;
+-- "location" = abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/
+```
+
+**Step 5 — Create external table using PySpark**
+
+```python
+from pyspark.sql.types import StructType, StructField, LongType, StringType, DateType, DecimalType, IntegerType
+
+schema = StructType([
+    StructField("order_id",     LongType(),        False),
+    StructField("customer_id",  LongType(),        False),
+    StructField("order_date",   DateType(),        True),
+    StructField("product_code", StringType(),      True),
+    StructField("quantity",     IntegerType(),     True),
+    StructField("unit_price",   DecimalType(10,2), True),
+    StructField("total_amount", DecimalType(10,2), True),
+    StructField("status",       StringType(),      True),
+])
+
+data = [
+    (1001, 1, "2024-06-01", "PROD-A", 2, 49.99,  99.98,  "COMPLETED"),
+    (1002, 2, "2024-06-02", "PROD-B", 1, 199.00, 199.00, "PENDING"),
+    (1003, 1, "2024-06-03", "PROD-A", 5, 49.99,  249.95, "COMPLETED"),
+]
+
+df = spark.createDataFrame(data, schema=schema)
+
+# Write as external table — path is specified
+(
+    df.write
+      .format("delta")
+      .mode("overwrite")
+      .option("path", "abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/")
+      .saveAsTable("dev_catalog.bronze.sales_orders_external")
+)
+
+spark.table("dev_catalog.bronze.sales_orders_external").show()
+```
+
+**Step 6 — Verify DROP keeps data safe**
+
+```sql
+-- Drop the table — removes only the metadata from Unity Catalog
+DROP TABLE dev_catalog.bronze.sales_orders_external;
+
+-- Data files still exist in ADLS at:
+-- abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/
+
+-- Re-register the same data as a table any time
+CREATE TABLE dev_catalog.bronze.sales_orders_external
+USING DELTA
+LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/';
+
+SELECT * FROM dev_catalog.bronze.sales_orders_external;
+```
+
+---
+
+### CTAS — Create Table As Select (Both Types)
+
+Use `CREATE TABLE ... AS SELECT` when you want to create a table and populate it from a query in one step.
+
+**Managed CTAS**
+
+```sql
+-- Creates and populates a managed table from a query result
+CREATE TABLE dev_catalog.gold.high_value_customers
+USING DELTA
+COMMENT 'Customers with total orders > 300'
+AS
+SELECT
+  customer_id,
+  first_name || ' ' || last_name AS customer_name,
+  country
+FROM dev_catalog.bronze.customers_managed
+WHERE is_active = true;
+
+SELECT * FROM dev_catalog.gold.high_value_customers;
+```
+
+**External CTAS**
+
+```sql
+-- Creates and populates an external table at a specific ADLS path
+CREATE TABLE dev_catalog.gold.revenue_summary_external
+USING DELTA
+LOCATION 'abfss://gold@stunitycatalogdev01.dfs.core.windows.net/revenue_summary/'
+COMMENT 'Revenue summary — stored in gold ADLS container'
+AS
+SELECT
+  customer_id,
+  COUNT(order_id)    AS total_orders,
+  SUM(total_amount)  AS total_revenue,
+  MAX(order_date)    AS last_order_date
+FROM dev_catalog.bronze.sales_orders_external
+WHERE status = 'COMPLETED'
+GROUP BY customer_id;
+
+SELECT * FROM dev_catalog.gold.revenue_summary_external;
+```
+
+---
+
+### DML Operations on Both Table Types
+
+Both managed and external tables support full DML — the behaviour is identical from a query perspective.
+
+```sql
+-- UPDATE
+UPDATE dev_catalog.bronze.customers_managed
+SET is_active = false
+WHERE country = 'US' AND customer_id = 3;
+
+-- DELETE
+DELETE FROM dev_catalog.bronze.customers_managed
+WHERE is_active = false;
+
+-- MERGE (upsert)
+MERGE INTO dev_catalog.bronze.customers_managed AS target
+USING (
+  SELECT 4 AS customer_id, 'Diana' AS first_name, 'Prince' AS last_name,
+         'diana@example.com' AS email, '555-0104' AS phone,
+         'US' AS country, CAST('2024-07-01' AS DATE) AS created_date, true AS is_active
+) AS source
+ON target.customer_id = source.customer_id
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;
+```
+
+---
+
+### ALTER TABLE — Modify Table Properties
+
+```sql
+-- Add a new column
+ALTER TABLE dev_catalog.bronze.customers_managed
+ADD COLUMN loyalty_tier STRING AFTER country;
+
+-- Rename a column
+ALTER TABLE dev_catalog.bronze.customers_managed
+RENAME COLUMN phone TO phone_number;
+
+-- Change comment
+ALTER TABLE dev_catalog.bronze.customers_managed
+SET TBLPROPERTIES ('comment' = 'Updated comment');
+
+-- Enable Change Data Feed on existing table
+ALTER TABLE dev_catalog.bronze.sales_orders_external
+SET TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true');
+```
+
+---
+
+### Inspect Tables
+
+```sql
+-- List all tables in a schema
+SHOW TABLES IN dev_catalog.bronze;
+
+-- Basic column info
+DESCRIBE dev_catalog.bronze.customers_managed;
+
+-- Full details: location, format, num files, size
+DESCRIBE DETAIL dev_catalog.bronze.customers_managed;
+DESCRIBE DETAIL dev_catalog.bronze.sales_orders_external;
+
+-- Full column + table property info
+DESCRIBE EXTENDED dev_catalog.bronze.customers_managed;
+
+-- Full history of all operations
+DESCRIBE HISTORY dev_catalog.bronze.sales_orders_external;
+```
+
+---
+
+### When to Use Which
+
+| Use Case | Table Type |
+|---|---|
+| Bronze raw ingestion from ADLS | **External** — data already lives in ADLS at a known path |
+| Silver cleansed layer | **External** — accessible by other tools (Synapse, ADF) |
+| Gold aggregated / serving layer | **External** — shared with downstream consumers |
+| Scratch / intermediate computation | **Managed** — Databricks handles cleanup |
+| ML feature tables | **Managed** — lifecycle tied to the ML project |
+| Tables shared with non-Databricks tools | **External** — files in ADLS can be read by any tool |
+| Tables where you must guarantee data deletion on DROP | **Managed** — DROP TABLE removes files too |
+
+---
+
+## 12. Step 10 — Cluster Configuration for Unity Catalog
+
+Unity Catalog has specific cluster requirements.
+
+### Cluster Policy Requirements
+
+| Setting | Required Value |
+|---|---|
+| Databricks Runtime | **11.3 LTS** or above |
+| Access Mode | **Single User** or **Shared** (NOT "No isolation shared") |
+| Cluster Mode | Standard (not High Concurrency legacy) |
+
+### Create a UC-Compatible Cluster (UI)
+
+1. In the workspace → **Compute** → **+ Create compute**
+2. Configure:
+
+| Field | Value |
+|---|---|
+| Cluster name | `uc-dev-cluster` |
+| Policy | **Personal Compute** or **Unrestricted** |
+| Access mode | **Single user** (select your user email) |
+| Databricks Runtime | `14.3 LTS` or latest LTS |
+| Worker type | `Standard_DS3_v2` (dev) |
+| Min workers | `1` |
+| Max workers | `3` |
+| Enable autoscaling | Yes |
+
+3. Click **Create compute**
+
+> **Important:** "No isolation shared" clusters do NOT support Unity Catalog. Always use Single User or Shared access mode.
+
+### Attach Notebook to Cluster
+
+1. Open a notebook → Top-left cluster dropdown → Select `uc-dev-cluster`
+2. Run `SHOW CATALOGS;` to confirm Unity Catalog is accessible
+
+---
+
+## 13. Step 11 — Verify Delta Tables in Unity Catalog
+
+### Verification Queries
+
+```sql
+-- 1. List all catalogs
+SHOW CATALOGS;
+
+-- 2. List schemas in your catalog
+SHOW SCHEMAS IN dev_catalog;
+
+-- 3. List all tables
+SHOW TABLES IN dev_catalog.bronze;
+SHOW TABLES IN dev_catalog.silver;
+SHOW TABLES IN dev_catalog.gold;
+
+-- 4. Inspect table details (location, format, partitions)
+DESCRIBE DETAIL dev_catalog.bronze.customers;
+DESCRIBE DETAIL dev_catalog.bronze.sales_orders;
+
+-- 5. Check table history (Delta time travel)
+DESCRIBE HISTORY dev_catalog.bronze.sales_orders;
+
+-- 6. Read data
+SELECT * FROM dev_catalog.gold.customer_revenue_summary;
+
+-- 7. Verify external location paths
+SELECT * FROM dev_catalog.bronze.sales_orders VERSION AS OF 1;
+
+-- 8. Check Unity Catalog metadata
+SELECT * FROM system.information_schema.tables
+WHERE table_catalog = 'dev_catalog';
+```
+
+### Python (PySpark) Verification
+
+```python
+# In a Databricks notebook
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
+
+# List catalogs
+spark.sql("SHOW CATALOGS").show()
+
+# Read a Unity Catalog Delta table
+df = spark.table("dev_catalog.gold.customer_revenue_summary")
+df.show()
+df.printSchema()
+
+# Check table location
+spark.sql("DESCRIBE DETAIL dev_catalog.bronze.sales_orders").select(
+    "name", "location", "format", "numFiles", "sizeInBytes"
+).show(truncate=False)
+```
+
+---
+
+## 14. Governance — Grants & Privileges Reference
+
+Unity Catalog enforces fine-grained access control at every level.
+
+### Privilege Hierarchy
+
+```
+Account Admin
+  └── Metastore Admin
+        ├── Catalog Owner / USAGE
+        │     ├── Schema Owner / USAGE
+        │     │     ├── Table SELECT
+        │     │     ├── Table MODIFY
+        │     │     └── Table ALL PRIVILEGES
+        │     └── External Location CREATE EXTERNAL TABLE
+        └── Storage Credential CREATE EXTERNAL LOCATION
+```
+
+### Common Grant Statements
+
+```sql
+-- Grant a user access to a catalog
+GRANT USAGE ON CATALOG dev_catalog TO `user@company.com`;
+
+-- Grant a group access to a schema
+GRANT USAGE ON SCHEMA dev_catalog.bronze TO `data-engineers`;
+
+-- Grant SELECT on a table to a group
+GRANT SELECT ON TABLE dev_catalog.silver.customer_orders TO `data-analysts`;
+
+-- Grant MODIFY (insert/update/delete) to a group
+GRANT MODIFY ON TABLE dev_catalog.bronze.customers TO `data-engineers`;
+
+-- Grant all privileges on a schema
+GRANT ALL PRIVILEGES ON SCHEMA dev_catalog.gold TO `data-engineers`;
+
+-- Grant CREATE TABLE on a schema
+GRANT CREATE TABLE ON SCHEMA dev_catalog.bronze TO `data-engineers`;
+
+-- Grant access to external location
+GRANT CREATE EXTERNAL TABLE ON EXTERNAL LOCATION `ext-loc-bronze` TO `data-engineers`;
+
+-- View current grants
+SHOW GRANTS ON TABLE dev_catalog.bronze.customers;
+SHOW GRANTS ON SCHEMA dev_catalog.bronze;
+SHOW GRANTS ON CATALOG dev_catalog;
+```
+
+---
+
+## 15. Common Errors & Fixes
+
+### A. Account Console Login Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Selected user account does not exist in tenant 'Microsoft Services'` | Logged in with a personal Microsoft account (@outlook, @gmail etc.) | Create an organizational user in Microsoft Entra ID → assign Global Administrator → log in with that user → assign Account Admin to your real account (see Step 6a) |
+| `You do not have permission to access this resource` | User is not an Account Admin in Databricks | Ask the current Account Admin to add you via Account Console → Settings → User management → Admins |
+
+---
+
+### B. Metastore Provisioning Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `File Events Read Failed. Failed to provision file events resources during queue.create` | Access Connector missing one or more of the 4 required IAM roles | Assign all 4 roles: `Storage Blob Data Contributor`, `Storage Account Contributor`, `Storage Queue Data Contributor` on the **Storage Account**; `EventGrid EventSubscription Contributor` on the **Resource Group** (see Step 5) |
+| `AuthorizationFailure: This request is not authorized to perform this operation` | IAM role assigned but not yet propagated, or wrong scope | Wait 2–3 minutes and retry; verify roles are on the correct scope (storage account vs resource group) |
+| `Metastore not assigned to workspace` | Metastore and workspace not linked | Account Console → Catalog → select metastore → Workspaces tab → Assign |
+
+---
+
+### C. External Location & Storage Credential Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `You do not have the CREATE EXTERNAL LOCATION privilege for this metastore` | User is not Metastore Admin or lacks privilege | Add user as Metastore Admin in Account Console → Catalog → Admins tab, OR run: `GRANT CREATE EXTERNAL LOCATION ON METASTORE TO 'user@domain.com'` |
+| `User does not have CREATE MANAGED STORAGE on External Location 'metastore_root_location'` | User cannot create managed tables/catalogs in the metastore root | Run as Metastore Admin: `GRANT CREATE MANAGED STORAGE ON EXTERNAL LOCATION 'metastore_root_location' TO 'user@domain.com'` |
+| `External location overlaps with existing external location` | Two external locations with overlapping ADLS paths | Use non-overlapping path prefixes for each external location |
+| `Path not accessible: abfss://...` | Access Connector missing `Storage Blob Data Contributor` role | Re-check all 4 IAM role assignments on storage account and resource group (see Step 5) |
+
+---
+
+### D. Managed Catalog / Schema / Table Storage Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `INVALID_PARAMETER_VALUE.LOCATION_OVERLAP: Input path overlaps with managed storage` | Catalog `MANAGED LOCATION` is set to the **root** of the metastore container — which is already reserved | Use a **subfolder**: `abfss://metastore@storage.dfs.core.windows.net/dev_catalog/` instead of the root path |
+| Managed table shows **"Default Storage"** instead of your ADLS path | Catalog/schema was created without a `MANAGED LOCATION` — Databricks falls back to its own internal storage | Run `ALTER CATALOG dev_catalog SET MANAGED LOCATION 'abfss://metastore@storage.dfs.core.windows.net/dev_catalog/'` then re-create the table |
+| Managed table files not visible in Azure Portal Storage Browser | Table is stored in Databricks Default Storage (not your ADLS) | Set `MANAGED LOCATION` at catalog or schema level pointing to your ADLS subfolder (see Step 9a) |
+| `ALTER CATALOG` changes do not affect existing tables | `SET MANAGED LOCATION` only applies to newly created tables | Back up data → DROP old table → re-create table after setting managed location |
+
+```sql
+-- Quick diagnostic: check if catalog has managed location set
+DESCRIBE CATALOG EXTENDED dev_catalog;
+-- "Managed Location" row must show your ADLS subfolder path
+-- If empty → tables go to Default Storage (not your ADLS)
+
+-- Fix: set managed location to a subfolder (not the root container)
+ALTER CATALOG dev_catalog
+SET MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/';
+
+-- After fix: new managed tables will go to YOUR ADLS
+-- Verify after creating a table:
+DESCRIBE DETAIL dev_catalog.bronze.customers;
+-- location: abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/__unitystorage/...
+```
+
+---
+
+### E. Unity Catalog & Cluster Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `PERMISSION_DENIED: User does not have CREATE CATALOG privilege` | User is not Metastore Admin | Grant Metastore Admin in Account Console → Catalog → Admins tab |
+| `Unity Catalog is not enabled for this workspace` | Workspace not assigned to a metastore | Account Console → Catalog → Workspaces → Assign |
+| `This operation is not supported for No Isolation Shared clusters` | Wrong cluster access mode | Recreate cluster with **Single User** or **Shared** access mode |
+| `There is no current catalog set` | No `USE CATALOG` statement | Prefix with `catalog.schema.table` or run `USE CATALOG dev_catalog` |
+| `DELTA_MISSING_TRANSACTION_LOG` | Table created externally without Delta log | Re-create with `USING DELTA` or run `CONVERT TO DELTA` |
+
+---
+
+### E. Quick Privilege Fix — Run All as Metastore Admin
+
+If you keep hitting individual privilege errors, run all grants at once:
+
+```sql
+-- Grant all required metastore-level privileges to your user
+GRANT CREATE EXTERNAL LOCATION    ON METASTORE TO `your-email@domain.com`;
+GRANT CREATE CATALOG               ON METASTORE TO `your-email@domain.com`;
+GRANT CREATE MANAGED STORAGE ON EXTERNAL LOCATION `metastore_root_location`
+    TO `your-email@domain.com`;
+GRANT READ FILES, WRITE FILES ON STORAGE CREDENTIAL `<your-storage-credential-name>`
+    TO `your-email@domain.com`;
+```
+
+> **Simplest permanent fix:** Add your user as **Metastore Admin** in Account Console → Catalog → Admins tab. Metastore Admins have all privileges automatically.
+
+---
+
+## Quick Reference — Full SQL Script
+
+```sql
+-- ============================================================
+-- COMPLETE UNITY CATALOG SETUP — RUN IN ORDER
+-- ============================================================
+
+-- 1. Storage credential (run once per access connector)
+CREATE STORAGE CREDENTIAL `sc-adls-dev`
+WITH AZURE_MANAGED_IDENTITY (
+  CONNECTOR_ID = '/subscriptions/<SUB-ID>/resourceGroups/rg-databricks-uc/providers/Microsoft.Databricks/accessConnectors/adb-access-connector-dev'
+);
+
+-- 2. External locations
+CREATE EXTERNAL LOCATION `ext-loc-bronze`
+  URL 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/'
+  WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+
+CREATE EXTERNAL LOCATION `ext-loc-silver`
+  URL 'abfss://silver@stunitycatalogdev01.dfs.core.windows.net/'
+  WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+
+CREATE EXTERNAL LOCATION `ext-loc-gold`
+  URL 'abfss://gold@stunitycatalogdev01.dfs.core.windows.net/'
+  WITH (STORAGE CREDENTIAL `sc-adls-dev`);
+
+-- 3. Catalog and schemas
+-- MANAGED LOCATION is required — without it managed tables go to Databricks Default Storage (not your ADLS)
+CREATE CATALOG IF NOT EXISTS dev_catalog
+MANAGED LOCATION 'abfss://metastore@valaxystadlsunitycatalog.dfs.core.windows.net/dev_catalog/';
+
+USE CATALOG dev_catalog;
+
+-- Schemas inherit the catalog MANAGED LOCATION automatically.
+-- Explicit MANAGED LOCATION below overrides per layer if you want separate containers.
+CREATE SCHEMA IF NOT EXISTS bronze
+MANAGED LOCATION 'abfss://bronze@valaxystadlsunitycatalog.dfs.core.windows.net/managed/';
+
+CREATE SCHEMA IF NOT EXISTS silver
+MANAGED LOCATION 'abfss://silver@valaxystadlsunitycatalog.dfs.core.windows.net/managed/';
+
+CREATE SCHEMA IF NOT EXISTS gold
+MANAGED LOCATION 'abfss://gold@valaxystadlsunitycatalog.dfs.core.windows.net/managed/';
+
+-- 4. Bronze managed table
+CREATE TABLE IF NOT EXISTS dev_catalog.bronze.customers (
+  customer_id   BIGINT  NOT NULL,
+  first_name    STRING  NOT NULL,
+  last_name     STRING  NOT NULL,
+  email         STRING,
+  country       STRING,
+  created_date  DATE,
+  is_active     BOOLEAN DEFAULT true
+) USING DELTA;
+
+-- 5. Bronze external table
+CREATE TABLE IF NOT EXISTS dev_catalog.bronze.sales_orders (
+  order_id     BIGINT NOT NULL,
+  customer_id  BIGINT NOT NULL,
+  order_date   DATE,
+  product_code STRING,
+  quantity     INT,
+  total_amount DECIMAL(10,2),
+  status       STRING
+) USING DELTA
+LOCATION 'abfss://bronze@stunitycatalogdev01.dfs.core.windows.net/sales_orders/'
+PARTITIONED BY (order_date);
+
+-- 6. Silver layer
+CREATE TABLE IF NOT EXISTS dev_catalog.silver.customer_orders
+USING DELTA
+LOCATION 'abfss://silver@stunitycatalogdev01.dfs.core.windows.net/customer_orders/'
+AS SELECT
+  c.customer_id,
+  c.first_name || ' ' || c.last_name AS customer_name,
+  c.country, o.order_id, o.order_date,
+  o.product_code, o.quantity, o.total_amount, o.status
+FROM dev_catalog.bronze.customers c
+JOIN dev_catalog.bronze.sales_orders o ON c.customer_id = o.customer_id
+WHERE c.is_active = true;
+
+-- 7. Gold layer
+CREATE TABLE IF NOT EXISTS dev_catalog.gold.customer_revenue_summary
+USING DELTA
+LOCATION 'abfss://gold@stunitycatalogdev01.dfs.core.windows.net/customer_revenue_summary/'
+AS SELECT
+  customer_id, customer_name, country,
+  COUNT(order_id) AS total_orders,
+  SUM(total_amount) AS total_revenue,
+  MAX(order_date) AS last_order_date
+FROM dev_catalog.silver.customer_orders
+WHERE status = 'COMPLETED'
+GROUP BY customer_id, customer_name, country;
+
+-- 8. Verify
+SHOW TABLES IN dev_catalog.bronze;
+SHOW TABLES IN dev_catalog.silver;
+SHOW TABLES IN dev_catalog.gold;
+SELECT * FROM dev_catalog.gold.customer_revenue_summary;
+```
+
+---

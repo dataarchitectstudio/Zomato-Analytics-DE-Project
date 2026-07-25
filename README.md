@@ -1,4 +1,4 @@
-# Zomato Analytics — Data Engineering Project
+# Zomato Analytics — Data Engineering Project End-to-End
 
 ![Zomato Analytics Dashboard](Zomato%20Analytics%20Dashboard.png)
 

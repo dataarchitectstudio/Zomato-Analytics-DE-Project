@@ -158,3 +158,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Great Expectations data quality framework integration
 - dbt transformation layer
 - ML feature store integration
+
+
+### New Small Change
+
+- test-feature added

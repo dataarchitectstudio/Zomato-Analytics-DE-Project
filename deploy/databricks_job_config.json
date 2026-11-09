@@ -1,6 +1,6 @@
 {
   "name": "Zomato Analytics — Full Medallion Pipeline",
-  "description": "End-to-end pipeline: DDL → Data Gen → Bronze → Silver → Gold → Dashboard",
+  "description": "End-to-end pipeline: DDL → Data Gen (+ Lakebase OLTP CDC source) → Bronze → Silver → Gold → Dashboard",
   "tags": {
     "project": "zomato-analytics",
     "team": "data-engineering",
@@ -21,14 +21,20 @@
     },
     {
       "task_key": "generate_data",
-      "description": "Generate synthetic data using Faker and write Parquet to landing volume",
+      "description": "Generate synthetic data (Parquet to landing volume) and simulate Lakebase OLTP changes for CDC",
       "depends_on": [
         { "task_key": "create_tables" }
       ],
       "notebook_task": {
         "notebook_path": "/Workspace/Zomato-Analytics/setup/01_generate_data",
         "base_parameters": {
-          "catalog_name": "zomato_analytics"
+          "catalog_name": "zomato_analytics",
+          "enable_lakebase_cdc": "true",
+          "lakebase_project_id": "zomato-ops",
+          "lakebase_branch_id": "production",
+          "lakebase_database": "databricks_postgres",
+          "lakebase_create_if_missing": "true",
+          "num_cdc_changes": "200"
         }
       },
       "timeout_seconds": 1800,
@@ -36,7 +42,7 @@
     },
     {
       "task_key": "bronze_ingestion",
-      "description": "Ingest raw data into Bronze layer with schema enforcement and audit columns",
+      "description": "Ingest raw files into Bronze and load Lakebase partners (incremental CDC or full snapshot)",
       "depends_on": [
         { "task_key": "generate_data" }
       ],
@@ -46,7 +52,12 @@
           "catalog_name": "zomato_analytics",
           "env": "dev",
           "source_path": "/Volumes/zomato_analytics/raw/landing",
-          "load_type": "full"
+          "load_type": "full",
+          "enable_lakebase_cdc": "true",
+          "lakebase_load_type": "incremental",
+          "lakebase_project_id": "zomato-ops",
+          "lakebase_branch_id": "production",
+          "lakebase_database": "databricks_postgres"
         }
       },
       "timeout_seconds": 1800,
@@ -55,7 +66,7 @@
     },
     {
       "task_key": "silver_transformation",
-      "description": "Cleanse, deduplicate, and transform Bronze data into Silver layer",
+      "description": "Cleanse and transform Bronze into Silver; load Lakebase CDC into silver.delivery_partners (MERGE or full rebuild)",
       "depends_on": [
         { "task_key": "bronze_ingestion" }
       ],
@@ -63,7 +74,9 @@
         "notebook_path": "/Workspace/Zomato-Analytics/silver/02_silver_transformation",
         "base_parameters": {
           "catalog_name": "zomato_analytics",
-          "env": "dev"
+          "env": "dev",
+          "enable_lakebase_cdc": "true",
+          "lakebase_load_type": "incremental"
         }
       },
       "timeout_seconds": 3600,
@@ -71,7 +84,7 @@
     },
     {
       "task_key": "gold_aggregation",
-      "description": "Build business aggregations, dimensions, and fact tables in Gold layer",
+      "description": "Build Gold aggregations, dimensions and facts; maintain SCD2 dim_delivery_partners from the Silver Change Data Feed",
       "depends_on": [
         { "task_key": "silver_transformation" }
       ],
@@ -79,7 +92,9 @@
         "notebook_path": "/Workspace/Zomato-Analytics/gold/03_gold_aggregation",
         "base_parameters": {
           "catalog_name": "zomato_analytics",
-          "env": "dev"
+          "env": "dev",
+          "enable_lakebase_cdc": "true",
+          "lakebase_load_type": "incremental"
         }
       },
       "timeout_seconds": 3600,

@@ -83,8 +83,7 @@ def build_job_config(workspace_path, alert_email):
                     "catalog_name": "zomato_analytics",
                     "env": "dev",
                     "source_path": "/Volumes/zomato_analytics/raw/landing",
-                    "load_type": "full",
-                    # Exercise 5 — Lakebase partners: "incremental" (watermark) or "full"
+                    # Exercise 5 — the one load-type flag (Lakebase partners): "incremental" or "full"
                     "lakebase_load_type": "incremental",
                 },
             },

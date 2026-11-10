@@ -40,7 +40,7 @@
     },
     {
       "task_key": "bronze_ingestion",
-      "description": "Ingest raw files into Bronze; load Lakebase partners (lakebase_load_type: incremental with watermark, or full)",
+      "description": "Ingest raw files into Bronze (always full); load Lakebase partners (lakebase_load_type: incremental with watermark, or full)",
       "depends_on": [
         { "task_key": "generate_data" }
       ],
@@ -50,7 +50,6 @@
           "catalog_name": "zomato_analytics",
           "env": "dev",
           "source_path": "/Volumes/zomato_analytics/raw/landing",
-          "load_type": "full",
           "lakebase_load_type": "incremental",
           "lakebase_project_id": "zomato-ops",
           "lakebase_branch_id": "production",

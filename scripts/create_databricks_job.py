@@ -84,6 +84,8 @@ def build_job_config(workspace_path, alert_email):
                     "env": "dev",
                     "source_path": "/Volumes/zomato_analytics/raw/landing",
                     "load_type": "full",
+                    # Exercise 5 — Lakebase partners: "incremental" (watermark) or "full"
+                    "lakebase_load_type": "incremental",
                 },
             },
             "timeout_seconds": 1800,

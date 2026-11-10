@@ -1,6 +1,6 @@
 {
   "name": "Zomato Analytics — Full Medallion Pipeline",
-  "description": "End-to-end pipeline: DDL → Data Gen → Bronze → Silver → Gold → Dashboard",
+  "description": "End-to-end pipeline: DDL → Data Gen (+ Lakebase partner source) → Bronze → Silver → Gold → Dashboard",
   "tags": {
     "project": "zomato-analytics",
     "team": "data-engineering",
@@ -21,14 +21,18 @@
     },
     {
       "task_key": "generate_data",
-      "description": "Generate synthetic data using Faker and write Parquet to landing volume",
+      "description": "Generate synthetic data (Parquet to landing volume) and simulate partner-app changes in Lakebase",
       "depends_on": [
         { "task_key": "create_tables" }
       ],
       "notebook_task": {
         "notebook_path": "/Workspace/Zomato-Analytics/setup/01_generate_data",
         "base_parameters": {
-          "catalog_name": "zomato_analytics"
+          "catalog_name": "zomato_analytics",
+          "lakebase_project_id": "zomato-ops",
+          "lakebase_branch_id": "production",
+          "lakebase_database": "databricks_postgres",
+          "num_partner_changes": "100"
         }
       },
       "timeout_seconds": 1800,
@@ -36,7 +40,7 @@
     },
     {
       "task_key": "bronze_ingestion",
-      "description": "Ingest raw data into Bronze layer with schema enforcement and audit columns",
+      "description": "Ingest raw files into Bronze (always full); load Lakebase partners (lakebase_load_type: incremental with watermark, or full)",
       "depends_on": [
         { "task_key": "generate_data" }
       ],
@@ -46,7 +50,10 @@
           "catalog_name": "zomato_analytics",
           "env": "dev",
           "source_path": "/Volumes/zomato_analytics/raw/landing",
-          "load_type": "full"
+          "lakebase_load_type": "incremental",
+          "lakebase_project_id": "zomato-ops",
+          "lakebase_branch_id": "production",
+          "lakebase_database": "databricks_postgres"
         }
       },
       "timeout_seconds": 1800,
@@ -55,7 +62,7 @@
     },
     {
       "task_key": "silver_transformation",
-      "description": "Cleanse, deduplicate, and transform Bronze data into Silver layer",
+      "description": "Cleanse, deduplicate, and transform Bronze data into Silver layer (incl. silver.delivery_partners, overwrite)",
       "depends_on": [
         { "task_key": "bronze_ingestion" }
       ],
@@ -71,7 +78,7 @@
     },
     {
       "task_key": "gold_aggregation",
-      "description": "Build business aggregations, dimensions, and fact tables in Gold layer",
+      "description": "Build business aggregations, dimensions, and fact tables in Gold layer (incl. SCD2 dim_delivery_partners)",
       "depends_on": [
         { "task_key": "silver_transformation" }
       ],

@@ -41,7 +41,7 @@ Zomato_Analytics                    ← dedicated catalog
 
 | Layer | Namespace | Purpose | Key Features |
 |-------|-----------|---------|-------------|
-| **Bronze** | `zomato_analytics.bronze` | Raw ingestion | Schema enforcement, audit columns, SHA-256 row hashing, incremental merge |
+| **Bronze** | `zomato_analytics.bronze` | Raw ingestion | Schema enforcement, audit columns, SHA-256 row hashing, watermark-based incremental load (Lakebase partners) |
 | **Silver** | `zomato_analytics.silver` | Cleansed & conformed | Deduplication, null handling, data type casting, referential integrity, business rules |
 | **Gold** | `zomato_analytics.gold` | Business aggregations | Dimension tables, fact tables, KPI aggregations, RFM scoring, cohort analysis |
 | **Dashboard** | — | Executive analytics | Platform KPIs, revenue trends, city heatmaps, restaurant leaderboard, SLA monitoring |
@@ -288,7 +288,7 @@ Reads the Parquet files from the landing Volume, enforces schemas, adds audit co
 | `catalog_name` | `zomato_analytics` |
 | `env` | `dev` |
 | `source_path` | `/Volumes/zomato_analytics/raw/landing` |
-| `load_type` | `full` |
+| `lakebase_load_type` | `incremental` (or `full`) — Lakebase delivery partners (Exercise 5); file sources are always overwritten |
 
 - **Expected output**: 5 Bronze Delta tables, each with row-count confirmation
 - **Runtime**: ~2–4 minutes
